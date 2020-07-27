@@ -287,8 +287,8 @@ namespace asp {
       const int    MAX_ITERATIONS = 1e+5;
       
       vw::Vector3 objective(0, 0, 0);
-      vw::Vector2 solution = vw::math::levenberg_marquardtFixed<vw::camera::CameraGenericLMA, 2,3>(model, start, objective, status,
-						   ABS_TOL, REL_TOL, MAX_ITERATIONS);
+      vw::Vector2 solution = vw::math::levenberg_marquardtFixed<vw::camera::CameraGenericLMA, 2,3>
+        (model, start, objective, status, ABS_TOL, REL_TOL, MAX_ITERATIONS);
       VW_ASSERT( status > 0,
 		 vw::camera::PointToPixelErr() << "Unable to project point into camera." );
       
@@ -431,13 +431,14 @@ namespace asp {
     vw::camera::SmoothSLERPPoseInterpolation m_smooth_pose_adjustments;
   };
 
-  // This class will have adjustable position and pose. Those are obtained by applying
-  // adjustments to given DG camera position and pose. The adjustable position and pose
-  // implement operator() so can be invoked exactly as the original position
-  // and pose. Note that we don't adjust the velocity, maybe we should.
-  // This is a version of PiecewiseAdjustedLinescanModel tuned for DG.
-  // TODO: Study whether this new class or the original perform better for DG
-  // (a lot of work).
+  // This class will have adjustable position and pose. Those are
+  // obtained by applying adjustments to given DG camera position and
+  // pose. The adjustable position and pose implement operator() so
+  // can be invoked exactly as the original position and pose. Note
+  // that we don't adjust the velocity, maybe we should.  This is a
+  // version of PiecewiseAdjustedLinescanModel tuned for DG.  TODO:
+  // Study whether this new class or the original perform better for
+  // DG (a lot of work).
   class AdjustedLinescanDGModel:
     public LinescanDGModel<AdjustableDGPosition, AdjustableDGPose>
   {      

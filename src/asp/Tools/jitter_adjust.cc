@@ -197,9 +197,9 @@ struct PiecewiseReprojectionError {
       int num_cameras = m_cameras_vec.size();
       std::vector<double> local_cameras_vec = m_cameras_vec;
 
-	// Copy the camera adjustments to local storage.  Update them
-	// with the latest value for the current camera being floated.
-
+      // Copy the camera adjustments to local storage.  Update them
+      // with the latest value for the current camera being floated.
+      // Note that at most four adjustments are floated and hence updated.
       for (int i = 1; i <= 4; i++) {
 
 	int camera_index = -1;
@@ -401,6 +401,34 @@ struct PiecewiseReprojectionError {
   int m_ipt;          // index of the current 3D point in the vector of points
 };
 
+  
+/// A ceres cost function. The residual is the difference between the
+/// observed 3D point and the current (floating) 3D point, normalized by
+/// xyz_sigma. Used only for ground control points.
+struct XYZError {
+  XYZError(Vector3 const& observation, Vector3 const& xyz_sigma):
+    m_observation(observation), m_xyz_sigma(xyz_sigma){}
+
+  template <typename T>
+  bool operator()(const T* point, T* residuals) const {
+    for (size_t p = 0; p < m_observation.size(); p++)
+      residuals[p] = (point[p] - m_observation[p])/m_xyz_sigma[p]; // Input units are meters
+
+    return true;
+  }
+
+  // Factory to hide the construction of the CostFunction object from
+  // the client code.
+  static ceres::CostFunction* Create(Vector3 const& observation,
+                                     Vector3 const& xyz_sigma){
+    return (new ceres::AutoDiffCostFunction<XYZError, NUM_POINT_PARAMS, NUM_POINT_PARAMS>
+            (new XYZError(observation, xyz_sigma)));
+  }
+
+  Vector3 m_observation;
+  Vector3 m_xyz_sigma;
+};
+  
 // A ceres cost function. The residual is the difference between the
 // original camera center and the current (floating) camera center.
 // This cost function prevents the cameras from straying too far from
@@ -569,7 +597,7 @@ void jitter_adjust(std::vector<std::string> const& image_files,
   std::vector<double> cameras_vec(num_total_adj*NUM_CAMERA_PARAMS, 0.0);
 
   // If the input cameras are bundle-adjusted, use those adjustments
-  // as initial guess for piecewise adjustments. also pull the
+  // as initial guess for piecewise adjustments. Also pull the
   // unadjusted DG cameras.
   int start_index = 0;
   std::vector< boost::shared_ptr<vw::camera::CameraModel> > camera_models;
@@ -760,6 +788,31 @@ void jitter_adjust(std::vector<std::string> const& image_files,
     problem.AddResidualBlock(cost_function, loss_function, camera);
   }
 
+
+  // Add a terrain constraint
+  double terrain_weight = stereo_settings().piecewise_adjustment_terrain_weight;
+  if (terrain_weight < 0) 
+    vw_throw( ArgumentErr() << "Expecting a non-negative value "
+              << "for --piecewise-adjustment-terrain-weight.");
+
+  if (terrain_weight > 0) {
+    for (int ipt = 0; ipt < num_points; ipt++){
+      Vector3 observation = cnet[ipt].position();
+
+      // Decreasing sigma here will increase this point's weight in XYZError below.
+      Vector3 xyz_sigma(1.0, 1.0, 1.0);
+      xyz_sigma /= terrain_weight;
+      
+      std::cout << "--obs and sigma is " << observation << ' ' << xyz_sigma << std::endl;
+      std::cout << "--weight is " << terrain_weight << std::endl;
+      
+      ceres::CostFunction* cost_function = XYZError::Create(observation, xyz_sigma);
+      ceres::LossFunction* loss_function = get_jitter_loss_function();
+      double * point = points  + ipt * NUM_POINT_PARAMS;
+      problem.AddResidualBlock(cost_function, loss_function, point);
+    }
+  }
+  
   vw::vw_out() << "Solving for jitter" << std::endl;
   Stopwatch sw;
   sw.start();
@@ -767,7 +820,7 @@ void jitter_adjust(std::vector<std::string> const& image_files,
   ceres::Solver::Options options;
   options.gradient_tolerance = 1e-16;
   options.function_tolerance = 1e-16;
-  options.max_num_iterations = 1000;
+  options.max_num_iterations = stereo_settings().piecewise_adjustment_num_iterations;
   options.max_num_consecutive_invalid_steps = 100; // try hard
   options.minimizer_progress_to_stdout = true;
 

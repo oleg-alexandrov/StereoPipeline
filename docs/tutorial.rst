@@ -442,7 +442,13 @@ values are by default 5 and 95, and could be set for example to 10 and
 90. For very tall images, it may be desirable to use instead values
 closer to 0 and 100.
 
-:numref:`triangulation_options` has the full list of parameters
+The parameter ``--piecewise-adjustment-camera-weight`` can be used
+to control how much weight should be given to the constraint
+that cameras do not go too far. A ground constraint is given by 
+``--piecewise-adjustment-terrain-weight``. The number of itereations
+is set with ``--piecewise-adjustment-num-iterations``.
+
+See :numref:`triangulation_options` for the full list of parameters
 used in jitter correction.
 
 In order for jitter correction to be successful, the disparity map

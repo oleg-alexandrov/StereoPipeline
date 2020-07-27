@@ -667,11 +667,19 @@ piecewise-adjustment-camera-weight (*float*) (default = 1.0)
     the cost function. Increasing this value will constrain the
     adjustments to be smaller.
 
+piecewise-adjustment-terrain-weight (*float*) (default = 1.0)
+    Increasing this weight will keep the resulting terrain closer to
+    the the one without adjustments.
+
 num-matches-for-piecewise-adjustment (*integer*) (default = 90000)
     How many matches among images to create based on the disparity for
     the purpose of solving for jitter using piecewise adjustment.
 
-    These last two options are used internally.
+piecewise-adjustment-num-iterations (*integer*) (default = 1000)
+    Set the maximum number of iterations when computing piecewise
+    adjustments.
+
+    The two options below are used internally.
 
 compute-piecewise-adjustments-only (default = false)
     Compute the piecewise adjustments as part of jitter correction, and

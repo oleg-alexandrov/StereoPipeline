@@ -226,6 +226,8 @@ namespace asp {
     int    piecewise_adjustment_interp_type;
     int    num_matches_for_piecewise_adjustment;
     double piecewise_adjustment_camera_weight;
+    double piecewise_adjustment_terrain_weight;
+    int    piecewise_adjustment_num_iterations;
     bool   skip_computing_piecewise_adjustments;
     bool   compute_piecewise_adjustments_only;
 

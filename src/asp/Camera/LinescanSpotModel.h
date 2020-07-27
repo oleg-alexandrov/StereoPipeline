@@ -18,8 +18,7 @@
 
 /// \file LinescanSpotModel.h
 ///
-/// SPOT 5 camera model
-///
+/// SPOT5 camera model
 ///
 #ifndef __STEREO_CAMERA_LINESCAN_SPOT_MODEL_H__
 #define __STEREO_CAMERA_LINESCAN_SPOT_MODEL_H__
