@@ -51,7 +51,7 @@ template <class PositionFuncT, class PoseFuncT>
 vw::Vector3 LinescanDGModel<PositionFuncT, PoseFuncT>
 ::get_local_pixel_vector(vw::Vector2 const& pix) const {
   vw::Vector3 local_vec(pix[0] + m_detector_origin[0],
-                        m_detector_origin[1],
+                        m_detector_origin[1] + m_ms_offset,
                         m_focal_length);
   return normalize(local_vec);
 }

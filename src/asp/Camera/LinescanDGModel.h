@@ -239,6 +239,7 @@ namespace asp {
     /// Create a fake pinhole model. It will return the same results
     /// as the linescan camera at current line y, but we will use it
     /// by extension at neighboring lines as well.
+    /// TODO(oalexan1): Make this work for the MS band.
     vw::camera::PinholeModel linescan_to_pinhole(double y) const;
     
     
