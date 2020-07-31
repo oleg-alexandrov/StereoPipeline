@@ -53,7 +53,6 @@ install(TARGETS aster2asp DESTINATION bin)
 add_executable(bundle_adjust bundle_adjust.cc bundle_adjust_cost_functions.h
                              bundle_adjust_misc_functions.h)
 target_link_libraries(bundle_adjust AspSessions ${SOLVER_LIBRARIES})
-
 install(TARGETS bundle_adjust DESTINATION bin)
 
 add_executable(opencv_calibrate opencv_calibrate.cpp) 
@@ -209,3 +208,7 @@ install(TARGETS wv_correct DESTINATION bin)
 add_executable(cam_gen cam_gen.cc) 
 target_link_libraries(cam_gen AspSessions)
 install(TARGETS cam_gen DESTINATION bin)
+
+add_executable(jitter_correct jitter_correct.cc)
+target_link_libraries(jitter_correct AspSessions ${SOLVER_LIBRARIES})
+install(TARGETS jitter_correct DESTINATION bin)

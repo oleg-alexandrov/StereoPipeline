@@ -260,8 +260,7 @@ void compute_mean_residuals_at_xyz(CRNJ & crn,
                                   BAParamStorage const& param_storage,
                                   // outputs
                                   std::vector<double> & mean_residuals,
-                                  std::vector<int>  & num_point_observations
-                                  ) {
+                                  std::vector<int>  & num_point_observations) {
 
   mean_residuals.resize(param_storage.num_points());
   num_point_observations.resize(param_storage.num_points());
