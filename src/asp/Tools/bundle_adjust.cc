@@ -256,21 +256,30 @@ void compute_residuals(bool apply_loss_function,
 
 /// Compute residual map by averaging all the reprojection error at a given point
 void compute_mean_residuals_at_xyz(CRNJ & crn,
-                                  std::vector<double> const& residuals,
-                                  BAParamStorage const& param_storage,
-                                  // outputs
-                                  std::vector<double> & mean_residuals,
-                                  std::vector<int>  & num_point_observations) {
+                                   std::vector<double> const& residuals,
+                                   BAParamStorage const& param_storage,
+                                   // outputs
+                                   std::vector<double> & mean_residuals,
+                                   std::vector< std::vector<double> > & indiv_residuals,
+                                   std::vector<int>  & num_point_observations) {
 
-  mean_residuals.resize(param_storage.num_points());
-  num_point_observations.resize(param_storage.num_points());
-  
+  int num_pts = param_storage.num_points();
+  int num_cams = param_storage.num_cameras();
+  mean_residuals.resize(num_pts);
+  num_point_observations.resize(num_pts);
+
+  // Allocate memory for individual residuals. Each camera has x and y residuals.
+  indiv_residuals.resize(num_pts);
+  for (int ipt = 0; ipt < num_pts; ipt++) {
+    indiv_residuals[ipt].resize(num_cams * PIXEL_SIZE, 0);
+  }
+    
   // Observation residuals are stored at the beginning of the residual vector in the 
   //  same order they were originally added to Ceres.
   
   size_t residual_index = 0;
   // Double loop through cameras and crn entries will give us the correct order
-  for ( size_t icam = 0; icam < param_storage.num_cameras(); icam++ ) {
+  for (int icam = 0; icam < num_cams; icam++) {
     typedef CameraNode<JFeature>::const_iterator crn_iter;
     for ( crn_iter fiter = crn[icam].begin(); fiter != crn[icam].end(); fiter++ ){
 
@@ -281,11 +290,14 @@ void compute_mean_residuals_at_xyz(CRNJ & crn,
         continue; // skip outliers
 
       // Get the residual error for this observation
-      double errorX         = residuals[residual_index  ];
-      double errorY         = residuals[residual_index+1];
+      double errorX         = residuals[residual_index + 0];
+      double errorY         = residuals[residual_index + 1];
       double residual_error = (fabs(errorX) + fabs(errorY)) / 2;
       residual_index += PIXEL_SIZE;
 
+      indiv_residuals[ipt][PIXEL_SIZE * icam + 0] = errorX;
+      indiv_residuals[ipt][PIXEL_SIZE * icam + 1] = errorY;
+      
       // Update information for this point
       num_point_observations[ipt] += 1;
       mean_residuals        [ipt] += residual_error;
@@ -293,7 +305,7 @@ void compute_mean_residuals_at_xyz(CRNJ & crn,
   } // End double loop through all the observations
 
   // Do the averaging
-  for (size_t i = 0; i < param_storage.num_points(); ++i) {
+  for (int i = 0; i < num_pts; ++i) {
     if (param_storage.get_point_outlier(i)) {
       // Skip outliers. But initialize to something.
       mean_residuals        [i] = std::numeric_limits<double>::quiet_NaN();
@@ -307,8 +319,12 @@ void compute_mean_residuals_at_xyz(CRNJ & crn,
 
 /// Write out a .csv file recording the residual error at each location on the ground
 void write_residual_map(std::string const& output_prefix,
-                        std::vector<double> const& mean_residuals, // Mean residual of each point
-                        std::vector<int   > const& num_point_observations, // Num non-outlier pixels per point
+                        // Mean residual of each point
+                        std::vector<double> const& mean_residuals,
+                        // Individual x and y residuals per camera
+                        std::vector< std::vector<double> > const& indiv_residuals,
+                         // Num non-outlier pixels per point
+                        std::vector<int   > const& num_point_observations,
                         BAParamStorage const& param_storage,
                         ControlNetwork const& cnet,
                         Options const& opt) {
@@ -332,7 +348,7 @@ void write_residual_map(std::string const& output_prefix,
   
   std::ofstream file;
   file.open(output_path.c_str()); file.precision(18);
-  file << "# lon, lat, height_above_datum, mean_residual, num_observations\n";
+  file << "# lon, lat, height_above_datum, mean_residual, num_observations, indiv residuals\n";
   file << "# " << opt.datum << std::endl;
   
   // Now write all the points to the file
@@ -347,11 +363,17 @@ void write_residual_map(std::string const& output_prefix,
 
       Vector3 llh = opt.datum.cartesian_to_geodetic(xyz);
 
+      file << llh[0] <<", "<< llh[1] <<", "<< llh[2] <<", "<< mean_residuals[i] <<", "
+           << num_point_observations[i];
+
+      for (size_t j = 0; j < indiv_residuals[i].size(); j++)
+        file << ", " << indiv_residuals[i][j];
+      
       std::string comment = "";
       if (cnet[i].type() == ControlPoint::GroundControlPoint)
         comment = " # GCP";
-      file << llh[0] <<", "<< llh[1] <<", "<< llh[2] <<", "<< mean_residuals[i] <<", "
-           << num_point_observations[i] << comment << std::endl;
+      
+      file << comment << std::endl;
   }
   file.close();
 
@@ -513,10 +535,12 @@ void write_residual_logs(std::string const& residual_prefix, bool apply_loss_fun
   std::string map_prefix = residual_prefix + "_pointmap";
   std::vector<double> mean_residuals;
   std::vector<int   > num_point_observations;
+  std::vector< std::vector<double> > indiv_residuals; 
   compute_mean_residuals_at_xyz(crn,  residuals,  param_storage,
-                                mean_residuals, num_point_observations);
+                                // outputs
+                                mean_residuals, indiv_residuals, num_point_observations);
 
-  write_residual_map(map_prefix, mean_residuals, num_point_observations,
+  write_residual_map(map_prefix, mean_residuals, indiv_residuals, num_point_observations,
                      param_storage, cnet, opt);
 
 } // End function write_residual_logs
@@ -555,10 +579,11 @@ int update_outliers(ControlNetwork   & cnet,
 
   // Compute the mean residual at each xyz, and how many times that residual is seen
   std::vector<double> mean_residuals;
+  std::vector< std::vector<double> > indiv_residuals; 
   std::vector<int   > num_point_observations;
   compute_mean_residuals_at_xyz(crn,  residuals,  param_storage,
                                 // outputs
-                                mean_residuals, num_point_observations);
+                                mean_residuals, indiv_residuals, num_point_observations);
 
   // The number of mean residuals is the same as the number of points,
   // of which some are outliers. Hence need to collect only the

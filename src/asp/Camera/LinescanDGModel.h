@@ -209,12 +209,13 @@ namespace asp {
                     double        const  mean_ground_elevation=0,
                     bool                 correct_velocity=true,
                     bool                 correct_atmosphere=true,
-                    double ms_offset = 0.0):
+                    double ms_offset = 0.0,
+                    std::vector<double> const& coeffs = std::vector<double>()):
       vw::camera::LinescanModelASP(image_size, correct_velocity, correct_atmosphere, ms_offset),
       m_position_func(position), m_velocity_func(velocity),
       m_pose_func(pose),         m_time_func(time),
       m_detector_origin(detector_origin),
-      m_focal_length(focal_length) {
+      m_focal_length(focal_length), m_coeffs(coeffs) {
       m_mean_surface_elevation = mean_ground_elevation; // Set base class value
     } 
     virtual ~LinescanDGModel() {}
@@ -225,7 +226,7 @@ namespace asp {
     // Implement the functions from the LinescanModelASP class using functors
     virtual vw::Vector3 get_camera_center_at_time  (double time) const { return m_position_func(time); }
     virtual vw::Vector3 get_camera_velocity_at_time(double time) const { return m_velocity_func(time); }
-    virtual vw::Quat    get_camera_pose_at_time    (double time) const { return m_pose_func    (time); }
+    virtual vw::Quat    get_camera_pose_at_time    (double time) const { return m_pose_func    (time)*get_adj(time); }
     virtual double      get_time_at_line           (double line) const { return m_time_func    (line - m_ms_offset); }
     
     /// As pixel_to_vector, but in the local camera frame.
@@ -246,7 +247,7 @@ namespace asp {
     PositionFuncT const& get_position_func() const {return m_position_func;} ///< Access the position function
     vw::camera::LinearPiecewisePositionInterpolation
     const& get_velocity_func() const {return m_velocity_func;} ///< Access the velocity function
-    PoseFuncT     const& get_pose_func    () const {return m_pose_func;    } ///< Access the pose     function
+    PoseFuncT     const& get_pose_func    () const {return m_pose_func;    } ///< Access the pose function
     vw::camera::TLCTimeInterpolation
     const& get_time_func    () const {return m_time_func;    } ///< Access the time     function
     
@@ -255,6 +256,54 @@ namespace asp {
     
     virtual vw::Vector3 pixel_to_vector(vw::Vector2 const& pixel) const;
     
+    std::vector<double> m_coeffs; // Fourier coefficients
+
+    // A time-dependent rotation around the x axis
+    vw::Quat get_adj(double t) const {
+
+      // Take care of when coeffs are not initialized
+      if (m_coeffs.empty()) {
+        return vw::Quat(vw::math::identity_matrix<3>());
+      }
+      
+      double tb = m_time_func(0); // line 0
+      double te = m_time_func(number_of_lines() - 1);
+      
+      //std::cout << "t is " << t << std::endl;
+      //std::cout << "--tb and te are " << tb << ' ' << te << std::endl;
+
+      // Normalize the value to [0, pi]. It may still go a little beyond it, depending on t.
+      double s = M_PI * (t - tb)/(te - tb);
+
+      if (m_coeffs.size() % 2 != 1) {
+        //std::cout << "--error: Must have an odd number of coeffs" << std::endl;
+      }
+
+                                                                        \
+      //std::cout << "--s is " << s << std::endl;
+      
+      //std::cout << "--size is " << m_coeffs.size() << std::endl;
+      double angle = m_coeffs[0];
+      //std::cout << "--fist coeff is " << m_coeffs[0] << std::endl;
+      for (int it = 0; it < (m_coeffs.size() - 1)/2; it++) {
+        //std::cout << "--it is " << it << std::endl;
+
+        double cos_coeff = m_coeffs[ 2 * it + 1];
+        double sin_coeff = m_coeffs[ 2 * it + 2];
+
+        //std::cout << "---coeff " << cos_coeff << ' ' << sin_coeff << std::endl;
+        
+        angle += cos_coeff * cos(t * (it + 1.0)) + sin_coeff * sin(t * (it + 1.0));
+      }
+
+      vw::Matrix3x3 M = vw::math::identity_matrix<3>();
+      M(1, 1) = cos(angle); M(1, 2) = -sin(angle);
+      M(2, 1) = sin(angle);  M(2, 2) = cos(angle);
+      
+      //std::cout << "M = " << M << std::endl;
+
+      return vw::Quat(M);
+    }
     
   protected: // Functions
     
@@ -276,7 +325,7 @@ namespace asp {
     /// - Stored internally in pixels.
     vw::Vector2  m_detector_origin; 
     double       m_focal_length;    ///< The focal length, also stored in pixels.
-    
+
     // Levenberg Marquardt solver for linescan number
     //
     // We solve for the line number of the image that position the

@@ -40,7 +40,7 @@ vw::camera::PinholeModel LinescanDGModel<PositionFuncT, PoseFuncT>
 ::linescan_to_pinhole(double y) const {
 
   double t = this->get_time_at_line(y);
-  return vw::camera::PinholeModel(this->m_position_func(t),  this->m_pose_func(t).rotation_matrix(),
+  return vw::camera::PinholeModel(this->m_position_func(t),  this->get_camera_pose_at_time(t).rotation_matrix(),
 				  this->m_focal_length, -this->m_focal_length,
 				  -this->m_detector_origin[0], y - this->m_detector_origin[1]
 				  );
@@ -88,13 +88,14 @@ vw::Vector2 LinescanDGModel<PositionFuncT, PoseFuncT>
 template <class PositionFuncT, class PoseFuncT>
 typename LinescanDGModel<PositionFuncT, PoseFuncT>::LinescanLMA::result_type
 LinescanDGModel<PositionFuncT, PoseFuncT>::LinescanLMA::operator()( domain_type const& y ) const {
-  double       t        = m_model->get_time_at_line(y[0]);
-  vw::Quat     pose     = m_model->get_camera_pose_at_time(t);
-  vw::Vector3  position = m_model->m_position_func(t);
 
   // Get point in camera's frame and rescale to pixel units
-  vw::Vector3 pt = vw::camera::point_to_camera_coord(position, pose, m_point);
-  pt *= m_model->m_focal_length / pt.z();
+  double       t        = m_model->get_time_at_line(y[0]);
+  vw::Quat     pose     = m_model->get_camera_pose_at_time(t); // camera to world
+  vw::Vector3  position = m_model->m_position_func(t);
+  vw::Vector3 pt        = inverse(pose).rotate(m_point - position);
+  pt                   *= m_model->m_focal_length / pt.z();
+
   result_type result(1);
   // Error against the location of the detector.
   result[0] = pt.y() - m_model->m_detector_origin[1] - m_ms_offset; 
@@ -127,9 +128,11 @@ point_to_pixel_uncorrected(vw::Vector3 const& point, double starty) const {
              << "Unable to project point into LinescanDG model" );
 
   // Solve for sample location now that we know the correct line
-  double      t  = get_time_at_line(solution[0]);
-  vw::Vector3 pt = inverse(m_pose_func(t)).rotate(point - m_position_func(t));
-  pt *= m_focal_length / pt.z();
+  double       t        = this->get_time_at_line(solution[0]);
+  vw::Quat     pose     = this->get_camera_pose_at_time(t); // camera to world
+  vw::Vector3  position = this->m_position_func(t);
+  vw::Vector3 pt        = inverse(pose).rotate(point - position);
+  pt                   *= this->m_focal_length / pt.z();
 
   return vw::Vector2(pt.x() - m_detector_origin[0], solution[0]);
 }
@@ -142,7 +145,9 @@ pixel_to_vector(vw::Vector2 const& pixel) const {
         // - m_detector_origin and m_focal_length have been converted into units of pixels
         vw::Vector3 local_vec = get_local_pixel_vector(pixel);
         // Put the local vector in world coordinates using the pose information.
-        vw::Vector3 output_vector = camera_pose(pixel).rotate(local_vec);
+        double       t        = this->get_time_at_line(pixel.y());
+        vw::Quat     pose     = this->get_camera_pose_at_time(t); // camera to world
+        vw::Vector3 output_vector = pose.rotate(local_vec);
 
 
         vw::Vector3 cam_ctr = camera_center(pixel);
@@ -224,6 +229,18 @@ boost::shared_ptr<DGCameraModel> load_dg_camera_model_from_xml(std::string const
     ms_offset = atof(ptr);
   }
   std::cout << "--ms offset is " << ms_offset << std::endl;
+  std::vector<double> coeffs;
+  char * adj = getenv("ADJ");
+  std::cout << "--adj is " << adj << std::endl;
+  if (adj != NULL) {
+    coeffs.clear();
+    std::istringstream ifs(adj);
+    double val;
+    while (ifs >> val) {
+      coeffs.push_back(val);
+      std::cout << "--coeff is " << val << std::endl;
+    }
+  }
   
   // Get an estimate of the surface elevation from the corners specified in the file.
   // - Not every file has this information, in which case we will just use zero.
@@ -342,7 +359,8 @@ boost::shared_ptr<DGCameraModel> load_dg_camera_model_from_xml(std::string const
                          geo.principal_distance,
                          mean_ground_elevation,
                          !stereo_settings().disable_correct_velocity_aberration,
-                         !stereo_settings().disable_correct_atmospheric_refraction, ms_offset));
+                         !stereo_settings().disable_correct_atmospheric_refraction, ms_offset,
+                         coeffs));
 } // End function load_dg_camera_model()
   
   
