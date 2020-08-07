@@ -45,70 +45,98 @@ typedef vw::ba::CameraRelationNetwork<vw::ba::JFeature> CRNJ;
 typedef vw::ba::CameraNode<vw::ba::JFeature>::iterator crn_iter;
 
 const int NUM_POINT_PARAMS = 3;
+const int PIXEL_SIZE = 2;
+
+struct Options : vw::cartography::GdalWriteOptions {
+  std::string pan_image, ms7_image, ms8_image, pan_camera, ms7_camera, ms8_camera, out_prefix,
+    images_to_use;
+  int num_frequencies; // TODO(oalexan1): Use instead the frequency, in Hz
+  int ms_offset, mode, num_iterations;
+  double min_triangulation_angle;
+};
 
 /// A Ceres cost function. We pass in the observation and the model.
 ///  The result is the residual, the difference in the observation 
-///  and the projection of the point into the camera, normalized by pixel_sigma.
+///  and the projection of the point into the camera.
 struct ReprojectionError {
-  ReprojectionError(Vector2 const& observation, Vector2 const& pixel_sigma,
+  ReprojectionError(Vector2 const& observation, CamPtr cam, int mode,
                     std::vector<int> const& block_sizes):
     m_observation(observation),
-    m_pixel_sigma(pixel_sigma),
-    m_block_sizes(block_sizes) {}
+    m_cam(cam),
+    m_mode(mode),
+    m_block_sizes(block_sizes){}
 
-  // Call to work with ceres::DynamicCostFunctions.
-  // - Takes array of arrays.
+  // Call to work with ceres::DynamicCostFunctions. Takes array of
+  // arrays. Each such array is a parameter block of a size that is
+  // determined at run-time.
   bool operator()(double const * const * parameters, double * residuals) const {
 
     // Need to create here the adjusted camera from the original camera
+
+    for (size_t it = 0; it < m_block_sizes.size(); it++) {
+//        std::cout << "--block size is " << it << " " << m_block_sizes[it] << std::endl;
+    }
+
+    asp::DGCameraModel * dg_cam = dynamic_cast<asp::DGCameraModel*>(m_cam.get());
+    if (dg_cam == NULL) 
+      vw::vw_throw( vw::ArgumentErr() << "Expecting a Digital Globe camera.\n\n");
+
+     //std::cout << "--cam offset is " << dg_cam->m_ms_offset << std::endl;
+    
+    // Create the camera
+    asp::LinescanModelFreq freq_cam(dg_cam, m_mode);
+    int num_coeffs = m_block_sizes[0];
+     //std::cout << "---num coeffs is " << num_coeffs << std::endl;
+    freq_cam.m_coeffs.resize(num_coeffs);
+    for (int it = 0; it < num_coeffs; it++) {
+       //std::cout << "--copy coeff: " << parameters[0][it] << std::endl;
+      freq_cam.m_coeffs[it] = parameters[0][it];
+    }
+
+    // Create the point
+    Vector3 xyz;
+    for (int it = 0; it < m_block_sizes[1]; it++) {
+      xyz[it] = parameters[1][it];
+    }
+     //std::cout << "--got xyz = " << xyz << std::endl;
     
     try {
-//       // Unpack the parameter blocks
-//       std::vector<double const*> param_blocks(m_num_param_blocks);
-//       for (size_t i = 0; i < m_num_param_blocks; i++) {
-//         param_blocks[i] = parameters[i];
-//       }
-
       // Use the camera model wrapper to handle all of the parameter blocks.
-      Vector2 prediction; // = m_camera_wrapper->evaluate(param_blocks);
+      Vector2 prediction = freq_cam.point_to_pixel(xyz);
 
-      //std::cout << "Got prediction " << prediction << std::endl;
-
-      // The error is the difference between the predicted and observed position,
-      // normalized by sigma.
-      residuals[0] = (prediction[0] - m_observation[0])/m_pixel_sigma[0]; // Input units are pixels
-      residuals[1] = (prediction[1] - m_observation[1])/m_pixel_sigma[1];
-
-      residuals[0] = 0;
-      residuals[1] = 0;
+       //std::cout << "Got prediction " << prediction << std::endl;
+       //std::cout << "--got observation " << m_observation << std::endl;
       
-      //std::cout << "Got residuals " << residuals[0] << ", " << residuals[1] << std::endl;
+      // The error is the difference between the predicted and observed position.
+      residuals[0] = prediction[0] - m_observation[0]; // Input units are pixels
+      residuals[1] = prediction[1] - m_observation[1];
+
+       //std::cout << "Got residuals " << residuals[0] << ", " << residuals[1] << std::endl;
 
     } catch (std::exception const& e) { // TODO: Catch only projection errors?
       // Failed to compute residuals
 
       //std::cout << "Caught exception!" << std::endl;
 
-      residuals[0] = 1e+20;
-      residuals[1] = 1e+20;
+      // Not sure if to return false or true here
+      residuals[0] = 0;
+      residuals[1] = 0;
       return false;
     }
     
     return true;
   }
 
-
   // Factory to hide the construction of the CostFunction object from the client code.
-  static ceres::CostFunction* Create(Vector2 const& observation, Vector2 const& pixel_sigma,
+  static ceres::CostFunction* Create(Vector2 const& observation, CamPtr cam,
+                                     int mode, 
                                      std::vector<int> const& block_sizes){
-    const int NUM_RESIDUALS = 2;
-
     ceres::DynamicNumericDiffCostFunction<ReprojectionError>* cost_function =
       new ceres::DynamicNumericDiffCostFunction<ReprojectionError>
-      (new ReprojectionError(observation, pixel_sigma, block_sizes));
+      (new ReprojectionError(observation, cam, mode, block_sizes));
     
     // The residual size is always the same.
-    cost_function->SetNumResiduals(NUM_RESIDUALS);
+    cost_function->SetNumResiduals(PIXEL_SIZE);
 
     // The camera wrapper knows all of the block sizes to add.
     for (size_t i = 0; i < block_sizes.size(); i++) {
@@ -118,18 +146,138 @@ struct ReprojectionError {
   }
 
 private:
-  Vector2 m_observation;     ///< The pixel observation for this camera/point pair.
-  Vector2 m_pixel_sigma;
+  Vector2 m_observation; // The pixel observation for this camera/point pair
+  CamPtr m_cam;
+  int m_mode;
   std::vector<int> m_block_sizes;
 }; // End class ReprojectionError
 
+// TODO(oalexan1): Expose the threshold
+ceres::LossFunction* get_jitter_loss_function(){
+  return new ceres::CauchyLoss(0.5);
+}
 
-struct Options : vw::cartography::GdalWriteOptions {
-  std::string pan_image, ms7_image, ms8_image, pan_camera, ms7_camera, ms8_camera, out_prefix;
-  int num_frequencies; // TODO(oalexan1): Use instead the frequency, in Hz
-  int ms_offset;
-  double min_triangulation_angle;
-};
+/// Compute the residuals
+void compute_residuals(Options const& opt,
+                       std::vector<int> const& cam_residual_counts,
+                       ceres::Problem &problem,
+                       // output
+                       std::vector<double> & residuals) {
+  
+  double cost = 0.0;
+  ceres::Problem::EvaluateOptions eval_options;
+  eval_options.apply_loss_function = false;
+  eval_options.num_threads = opt.num_threads;
+  
+  problem.Evaluate(eval_options, &cost, &residuals, 0, 0);
+  int num_residuals = residuals.size();
+  
+  // Verify our residual calculations are correct
+  int num_expected_residuals = 0;
+  for (size_t i = 0; i < cam_residual_counts.size(); i++) 
+    num_expected_residuals += cam_residual_counts[i]*PIXEL_SIZE;
+  
+  if (num_expected_residuals != num_residuals)
+    vw_throw( LogicErr() << "Expected " << num_expected_residuals
+              << " residuals but instead got " << num_residuals);
+}
+
+/// Compute residual map by averaging all the reprojection error at a given point
+void compute_mean_residuals_at_xyz(CRNJ & crn,
+                                   int num_points, int num_cameras,
+                                   std::vector<double> const& residuals,
+                                   // outputs
+                                   std::vector<double> & mean_residuals,
+                                   std::vector< std::vector<double> > & indiv_residuals,
+                                   std::vector<int>  & num_point_observations) {
+
+  mean_residuals.resize(num_points);
+  num_point_observations.resize(num_points);
+
+  // Allocate memory for individual residuals. Each camera has x and y residuals.
+  indiv_residuals.resize(num_points);
+  for (int ipt = 0; ipt < num_points; ipt++) {
+    indiv_residuals[ipt].resize(num_cameras * PIXEL_SIZE, 0);
+  }
+    
+  // Observation residuals are stored at the beginning of the residual vector in the 
+  //  same order they were originally added to Ceres.
+  
+  size_t residual_index = 0;
+  // Double loop through cameras and crn entries will give us the correct order
+  for (int icam = 0; icam < num_cameras; icam++) {
+    for (crn_iter fiter = crn[icam].begin(); fiter != crn[icam].end(); fiter++){
+
+      // The index of the 3D point
+      int ipt = (**fiter).m_point_id;
+
+      // Get the residual error for this observation
+      double errorX         = residuals[residual_index + 0];
+      double errorY         = residuals[residual_index + 1];
+      double residual_error = (std::abs(errorX) + std::abs(errorY)) / 2;
+      residual_index += PIXEL_SIZE;
+
+      indiv_residuals[ipt][PIXEL_SIZE * icam + 0] = errorX;
+      indiv_residuals[ipt][PIXEL_SIZE * icam + 1] = errorY;
+      
+      // Update information for this point
+      num_point_observations[ipt] += 1;
+      mean_residuals        [ipt] += residual_error;
+    }
+  } // End double loop through all the observations
+
+  // Do the averaging
+  for (int i = 0; i < num_points; i++) {
+    mean_residuals[i] /= static_cast<double>(num_point_observations[i]);
+  }
+  
+} // End function compute_mean_residuals_at_xyz
+
+/// Write out a .csv file recording the residual error at each location on the ground
+void write_residual_map(// Mean residual of each point
+                        std::vector<double> const& mean_residuals,
+                        // Individual x and y residuals per camera
+                        std::vector< std::vector<double> > const& indiv_residuals,
+                         // Num non-outlier pixels per point
+                        std::vector<int> const& num_point_observations,
+                        int num_points, int num_cameras,
+                        vw::ba::ControlNetwork const& cnet,
+                        vw::cartography::Datum const& datum,
+                        Options const& opt) {
+
+  std::string output_path = opt.out_prefix + "_point_log2.csv";
+
+  if (cnet.size() != num_points) 
+    vw_throw( LogicErr()
+              << "The number of points points "
+              << "does not agree with number of points in cnet.\n");
+  
+  // Open the output file and write the header
+  vw_out() << "Writing: " << output_path << std::endl;
+  
+  std::ofstream file(output_path.c_str());
+  file.precision(18);
+  file << "# lon, lat, height_above_datum, mean_residual, num_observations, indiv residuals\n";
+  file << "# " << datum << std::endl;
+  
+  // Now write all the points to the file
+  for (int i = 0; i < num_points; i++) {
+
+    Vector3 xyz = cnet[i].position();
+    
+    Vector3 llh = datum.cartesian_to_geodetic(xyz);
+    
+    file << llh[0] <<", "<< llh[1] <<", "<< llh[2] <<", "<< mean_residuals[i] <<", "
+         << num_point_observations[i];
+    
+    for (size_t j = 0; j < indiv_residuals[i].size(); j++)
+      file << ", " << indiv_residuals[i][j];
+
+    file << "\n";
+  }
+  file.close();
+  
+} // End function write_residual_map
 
 void handle_arguments(int argc, char *argv[], Options& opt) {
   po::options_description general_options("");
@@ -140,8 +288,14 @@ void handle_arguments(int argc, char *argv[], Options& opt) {
      "Number of jitter frequencies.")
     ("ms-offset",  po::value(&opt.ms_offset)->default_value(0),
      "Number of lines of offset between the multispectral and pan cameras.")
+    ("mode",  po::value(&opt.mode)->default_value(0),
+     "The mode of jitter to model (1 = along-track, 2 = across track 3 = along camera's z axis).")
+    ("num-iterations",       po::value(&opt.num_iterations)->default_value(1000),
+     "Set the maximum number of iterations.") 
     ("min-triangulation-angle",      po::value(&opt.min_triangulation_angle)->default_value(1e-8),
-     "The minimum angle, in degrees, at which rays must meet at a triangulated point to accept this point as valid. It must be a positive value.");
+     "The minimum angle, in degrees, at which rays must meet at a triangulated point to accept this point as valid. It must be a positive value.")
+    ("images-to-use",  po::value(&opt.images_to_use)->default_value(""),
+     "Out of the provided images, use 'pan,ms7', 'pan,ms8', or 'pan,ms7,ms8'.");
 
   general_options.add(vw::cartography::GdalWriteOptionsDescription(opt));
   
@@ -187,6 +341,10 @@ void handle_arguments(int argc, char *argv[], Options& opt) {
     vw::vw_throw( vw::ArgumentErr() << "Expecting a positive MS offset.\n\n"
                   << usage << general_options );
 
+  if (opt.mode <= 0) 
+    vw::vw_throw( vw::ArgumentErr() << "Expecting a positive mode.\n\n"
+                  << usage << general_options );
+
   // NOTE(oalexan1): The reason min_triangulation_angle cannot be 0 is deep inside
   // StereoModel.cc. Better keep it this way than make too many changes there.
   if ( opt.min_triangulation_angle <= 0.0 )
@@ -206,11 +364,6 @@ CamPtr load_camera(Options const& opt, std::string const& image, std::string con
                                                        image, camera, image, camera,
                                                        out_prefix));
   return session->camera_model(image, camera);
-}
-
-// TODO(oalexan1): Expose the threshold
-ceres::LossFunction* get_jitter_loss_function(){
-  return new ceres::CauchyLoss(0.5);
 }
 
 int main(int argc, char* argv[]) {
@@ -247,21 +400,18 @@ int main(int argc, char* argv[]) {
     pan_dg_cam->m_ms_offset = 0;
     ms7_dg_cam->m_ms_offset = -opt.ms_offset;
     ms8_dg_cam->m_ms_offset = opt.ms_offset;
-    
 
-#if 1
-    int mode = atoi(getenv("MODE"));
-    std::cout << "--mode is " << mode << std::endl;
-    asp::LinescanModelFreq f_pan_cam(pan_dg_cam, mode);
-    asp::LinescanModelFreq f_ms7_cam(ms7_dg_cam, mode);
-    asp::LinescanModelFreq f_ms8_cam(ms8_dg_cam, mode);
+    std::cout << "ms_offset = " << pan_dg_cam->m_ms_offset << " for " << opt.pan_image<< std::endl;
+    std::cout << "ms_offset = " << ms7_dg_cam->m_ms_offset << " for " << opt.ms7_image<< std::endl;
+    std::cout << "ms_offset = " << ms8_dg_cam->m_ms_offset << " for " << opt.ms8_image<< std::endl;
+    
     int num = 10;
     std::vector<double> coeffs(2*num+1, 0);
-    coeffs.back() = 1e-6; // temporary!
-    f_pan_cam.m_coeffs = coeffs;
-    f_ms7_cam.m_coeffs = coeffs;
-    f_ms8_cam.m_coeffs = coeffs;
-#endif
+    //coeffs.back() = 1e-4; // temporary!
+
+    for (size_t it = 0; it < coeffs.size(); it++) {
+      std::cout << "---coeff is " << it << ' ' << coeffs[it] << std::endl;
+    }
     
 //     int num =
 #if 0
@@ -340,26 +490,38 @@ int main(int argc, char* argv[]) {
 
     // 3 cameras and images
     std::vector<std::string> images;
-    images.push_back(opt.pan_image);
-    //images.push_back(opt.ms7_image); // temporary!
-    images.push_back(opt.ms8_image);
     std::vector<CamPtr> cameras;
+    images.push_back(opt.pan_image);
     cameras.push_back(pan_cam);
-    //cameras.push_back(ms7_cam); // temporary!
-    cameras.push_back(ms8_cam);
+    std::map<std::pair<int, int>, std::string> match_files;
 
-    // Temporary!
-    std::map< std::pair<int, int>, std::string> match_files;
-    match_files[std::pair<int, int>(0, 1)]
-      = ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms8_image);
-    // temporary!
-//     match_files[std::pair<int, int>(0, 1)]
-//       = ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms7_image);
-//     match_files[std::pair<int, int>(0, 2)]
-//       = ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms8_image);
+    if (opt.images_to_use == "pan,ms7" || opt.images_to_use == "pan,ms7,ms8") {
+      images.push_back(opt.ms7_image);
+      cameras.push_back(ms7_cam);
+    }
+    
+    if (opt.images_to_use == "pan,ms8" || opt.images_to_use == "pan,ms7,ms8") {
+      images.push_back(opt.ms8_image);
+      cameras.push_back(ms8_cam);
+    }
+    
+    if (opt.images_to_use == "pan,ms7") {
+      match_files[std::pair<int, int>(0, 1)]
+        = ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms7_image);
+    }
+    if (opt.images_to_use == "pan,ms8") {
+      match_files[std::pair<int, int>(0, 1)]
+       = ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms8_image);
+    }
+    if (opt.images_to_use == "pan,ms7,ms8") {
+      match_files[std::pair<int, int>(0, 1)]
+        = ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms7_image);
+      match_files[std::pair<int, int>(0, 2)]
+       = ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms8_image);
+    }
     
     int min_matches = 30;
-    ba::ControlNetwork cnet("JitterSolve");
+    vw::ba::ControlNetwork cnet("JitterSolve");
     bool triangulate_control_points = true;
     double forced_triangulation_distance = -1;
     bool success = build_control_network(triangulate_control_points,
@@ -400,10 +562,15 @@ int main(int argc, char* argv[]) {
     vw::cartography::Datum datum("WGS84");
     std::cout << "--datum is " << datum << std::endl;
 
-    std::vector< std::vector<Vector3> > LLH(2);
-    std::vector< std::vector<Vector2> > Diff(2);
-    
+//     std::vector< std::vector<Vector3> > LLH(2);
+//     std::vector< std::vector<Vector2> > Diff(2);
+
+    std::vector<int> cam_residual_counts(num_cameras);
+
     for (int icam = 0; icam < num_cameras; icam++) { // Camera loop
+
+      cam_residual_counts[icam] = 0;
+
       for (crn_iter fiter = crn[icam].begin(); fiter != crn[icam].end(); fiter++){ // IP loop
 
         // The index of the 3D point this IP is for.
@@ -417,14 +584,7 @@ int main(int argc, char* argv[]) {
         // The observed value for the projection of point with index ipt into
         // the camera with index icam.
         Vector2 observation = (**fiter).m_location;
-        Vector2 pixel_sigma = (**fiter).m_scale;
         
-        //std::cout << "--pixel sigma is " << pixel_sigma << std::endl;
-        
-        // This is a bugfix
-        if (pixel_sigma != pixel_sigma) // nan check
-          pixel_sigma = Vector2(1, 1);
-
         Vector3 xyz = cnet[ipt].position();
 
         Vector2 pix = cameras[icam]->point_to_pixel(xyz);
@@ -438,44 +598,59 @@ int main(int argc, char* argv[]) {
         // Need to add here the pointer to the given DG camera
         
         ceres::CostFunction* cost_function =
-          ReprojectionError::Create(observation, pixel_sigma, block_sizes);
+          ReprojectionError::Create(observation, cameras[icam], opt.mode, block_sizes);
 
         ceres::LossFunction* loss_function = get_jitter_loss_function();
         
         problem.AddResidualBlock(cost_function, loss_function, &coeffs[0], point);
+
+        cam_residual_counts[icam] += 1; // Track the number of residual blocks for each camera
         
-        LLH[icam].push_back(llh);
-        Diff[icam].push_back(diff);
-        
-        //         // Call function to add the appropriate Ceres residual block.
-        //         add_reprojection_residual_block(observation, pixel_sigma, ipt, icam,
-        //                                         is_gcp, param_storage, opt, problem);
+//         LLH[icam].push_back(llh);
+//         Diff[icam].push_back(diff);
         
       } // end iterating over points
     } // end iterating over cameras
-    
-    std::string res_file = opt.out_prefix + "-residuals.csv";
-    std::cout << "Writing: " << res_file << std::endl;
-    std::ofstream ofs(res_file.c_str());
-    ofs << "# lon, lat, height_above_datum, mean_residual, num_observations, indiv residuals\n";
-    ofs.precision(18);
-    
-    for (size_t it = 0; it < Diff[0].size(); it++) {
-      
-      Vector3 llh = LLH[0][it];
-      Vector2 diff1 = Diff[0][it];
-      Vector2 diff2 = Diff[1][it];
 
-      double mean_res = (std::abs(diff1[0]) + std::abs(diff1[1])
-                         + std::abs(diff2[0]) + std::abs(diff2[1]))/4.0;
-      
-      ofs << llh[0] << ", " << llh[1] << ", " << llh[2] << ", "
-          << mean_res << ", " << 2 << ", "
-          << diff1.x() << ", " << diff1.y() << ", "
-          << diff2.x() << ", " << diff2.y() << std::endl;
-    }
-    ofs.close();
+    std::vector<double> residuals;
+    std::vector<double> mean_residuals;
+    std::vector< std::vector<double> > indiv_residuals;
+    std::vector<int> num_point_observations;
+    
+    compute_residuals(opt, cam_residual_counts, problem, residuals);
+    compute_mean_residuals_at_xyz(crn, num_points, num_cameras, residuals,  
+                                   // outputs
+                                  mean_residuals, indiv_residuals, num_point_observations);
 
+    // Write out a .csv file recording the residual error at each location on the ground
+    write_residual_map(mean_residuals, indiv_residuals,  
+                       num_point_observations, num_points, num_cameras,  
+                        cnet, datum, opt);
+    
+//     std::string res_file = opt.out_prefix + "-residuals.csv";
+//     std::cout << "Writing: " << res_file << std::endl;
+//     std::ofstream ofs(res_file.c_str());
+//     ofs << "# lon, lat, height_above_datum, mean_residual, num_observations, indiv residuals\n";
+//     ofs.precision(18);
+    
+//     for (size_t it = 0; it < Diff[0].size(); it++) {
+      
+//       Vector3 llh = LLH[0][it];
+//       Vector2 diff1 = Diff[0][it];
+//       Vector2 diff2 = Diff[1][it];
+
+//       double mean_res = (std::abs(diff1[0]) + std::abs(diff1[1])
+//                          + std::abs(diff2[0]) + std::abs(diff2[1]))/4.0;
+      
+//       ofs << llh[0] << ", " << llh[1] << ", " << llh[2] << ", "
+//           << mean_res << ", " << 2 << ", "
+//           << diff1.x() << ", " << diff1.y() << ", "
+//           << diff2.x() << ", " << diff2.y() << std::endl;
+//     }
+//     ofs.close();
+
+    return 0;
+    
     vw::vw_out() << "Solving for jitter" << std::endl;
     Stopwatch sw;
     sw.start();
@@ -483,7 +658,7 @@ int main(int argc, char* argv[]) {
     ceres::Solver::Options options;
     options.gradient_tolerance = 1e-16;
     options.function_tolerance = 1e-16;
-    options.max_num_iterations = 1000; // TODO(oalexan1): Expose this
+    options.max_num_iterations = opt.num_iterations;
     options.max_num_consecutive_invalid_steps = 100; // try hard
     options.minimizer_progress_to_stdout = true;
 
