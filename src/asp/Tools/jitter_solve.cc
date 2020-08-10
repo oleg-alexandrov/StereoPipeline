@@ -52,7 +52,8 @@ struct Options : vw::cartography::GdalWriteOptions {
     images_to_use;
   int num_frequencies; // TODO(oalexan1): Use instead the frequency, in Hz
   int ms_offset, mode, num_iterations;
-  double min_triangulation_angle;
+  double min_triangulation_angle, horiz_weight, vert_weight;
+  bool read_xyz_on_dem;
 };
 
 /// A Ceres cost function. We pass in the observation and the model.
@@ -157,9 +158,96 @@ ceres::LossFunction* get_jitter_loss_function(){
   return new ceres::CauchyLoss(0.5);
 }
 
+// A ceres cost function. The residual is the vertical component of
+// the difference between the observed 3D point and the current
+// (floating) 3D point.
+struct XYZVertError {
+  XYZVertError(Vector3 const& obs, double vert_weight):
+    m_obs(obs), m_vert_weight(vert_weight) {}
+
+  // Call to work with ceres::DynamicCostFunctions. Takes array of
+  // arrays. Each such array is a parameter block of a size that is
+  // determined at run-time.
+  bool operator()(double const * const * parameters, double * residuals) const {
+    
+    Vector3 xyz;
+    for (size_t p = 0; p < 3; p++) 
+      xyz[p] = parameters[0][p];
+
+    Vector3 err = m_obs * dot_prod(xyz - m_obs, m_obs) / dot_prod(m_obs, m_obs);
+    err *= m_vert_weight;
+    
+    for (size_t p = 0; p < 3; p++)
+      residuals[p] = err[p];
+    
+    return true;
+  }
+
+  // Factory to hide the construction of the CostFunction object from the client code.
+  static ceres::CostFunction* Create(Vector3 const& obs, double vert_weight){
+    ceres::DynamicNumericDiffCostFunction<XYZVertError>* cost_function =
+      new ceres::DynamicNumericDiffCostFunction<XYZVertError>
+      (new XYZVertError(obs, vert_weight));
+    
+    // The residual size is always the same.
+    cost_function->SetNumResiduals(3);
+    cost_function->AddParameterBlock(3);
+    return cost_function;
+  }
+
+private:
+  Vector3 m_obs; 
+  double m_vert_weight;
+}; // End class XYZVertError
+
+// A ceres cost function. The residual is the horizical component of
+// the difference between the observed 3D point and the current
+// (floating) 3D point.
+struct XYZHorizError {
+  XYZHorizError(Vector3 const& obs, double horiz_weight):
+    m_obs(obs), m_horiz_weight(horiz_weight) {}
+
+  // Call to work with ceres::DynamicCostFunctions. Takes array of
+  // arrays. Each such array is a parameter block of a size that is
+  // determined at run-time.
+  bool operator()(double const * const * parameters, double * residuals) const {
+
+    
+    Vector3 xyz;
+    for (size_t p = 0; p < 3; p++) 
+      xyz[p] = parameters[0][p];
+
+     Vector3 err = m_obs * dot_prod(xyz - m_obs, m_obs) / dot_prod(m_obs, m_obs);
+     err = xyz - m_obs - err;
+     err *= m_horiz_weight;
+    
+    for (size_t p = 0; p < 3; p++)
+      residuals[p] = err[p];
+    
+    return true;
+  }
+
+  // Factory to hide the construction of the CostFunction object from the client code.
+  static ceres::CostFunction* Create(Vector3 const& obs, double horiz_weight){
+    ceres::DynamicNumericDiffCostFunction<XYZHorizError>* cost_function =
+      new ceres::DynamicNumericDiffCostFunction<XYZHorizError>
+      (new XYZHorizError(obs, horiz_weight));
+    
+    // The residual size is always the same.
+    cost_function->SetNumResiduals(3);
+    cost_function->AddParameterBlock(3);
+    return cost_function;
+  }
+
+private:
+  Vector3 m_obs; 
+  double m_horiz_weight;
+}; // End class XYZHorizError
+
 /// Compute the residuals
 void compute_residuals(Options const& opt,
                        std::vector<int> const& cam_residual_counts,
+                       int num_points,
                        ceres::Problem &problem,
                        // output
                        std::vector<double> & residuals) {
@@ -176,6 +264,11 @@ void compute_residuals(Options const& opt,
   int num_expected_residuals = 0;
   for (size_t i = 0; i < cam_residual_counts.size(); i++) 
     num_expected_residuals += cam_residual_counts[i]*PIXEL_SIZE;
+
+  if (opt.horiz_weight > 0 || opt.vert_weight > 0) {
+    num_expected_residuals += num_points * NUM_POINT_PARAMS; // horiz residuals
+    num_expected_residuals += num_points * NUM_POINT_PARAMS; // vert residuals
+  }
   
   if (num_expected_residuals != num_residuals)
     vw_throw( LogicErr() << "Expected " << num_expected_residuals
@@ -241,16 +334,17 @@ void write_residual_map(// Mean residual of each point
                          // Num non-outlier pixels per point
                         std::vector<int> const& num_point_observations,
                         int num_points, int num_cameras,
+                        std::vector<double> const& points_vec,
                         vw::ba::ControlNetwork const& cnet,
                         vw::cartography::Datum const& datum,
+                        std::string const& output_path,
                         Options const& opt) {
 
-  std::string output_path = opt.out_prefix + "_point_log2.csv";
-
-  if (cnet.size() != num_points) 
+  if (cnet.size() != num_points || num_points * NUM_POINT_PARAMS != int(points_vec.size())) {
     vw_throw( LogicErr()
               << "The number of points points "
               << "does not agree with number of points in cnet.\n");
+  }
   
   // Open the output file and write the header
   vw_out() << "Writing: " << output_path << std::endl;
@@ -263,7 +357,8 @@ void write_residual_map(// Mean residual of each point
   // Now write all the points to the file
   for (int i = 0; i < num_points; i++) {
 
-    Vector3 xyz = cnet[i].position();
+    int k = NUM_POINT_PARAMS * i;
+    Vector3 xyz(points_vec[k], points_vec[k + 1], points_vec[k + 2]);
     
     Vector3 llh = datum.cartesian_to_geodetic(xyz);
     
@@ -278,6 +373,56 @@ void write_residual_map(// Mean residual of each point
   file.close();
   
 } // End function write_residual_map
+
+void save_residuals(Options const& opt, CRNJ & crn,
+                    vw::ba::ControlNetwork const& cnet,
+                    std::vector<double> const& points_vec,
+                    ceres::Problem &problem,
+                    vw::cartography::Datum const& datum,
+                    int num_points, int num_cameras,
+                    std::vector<int> const& cam_residual_counts,
+                    std::string const& output_path) {
+    
+    std::vector<double> residuals;
+    std::vector<double> mean_residuals;
+    std::vector< std::vector<double> > indiv_residuals;
+    std::vector<int> num_point_observations;
+    
+    compute_residuals(opt, cam_residual_counts, num_points, problem, residuals);
+    compute_mean_residuals_at_xyz(crn, num_points, num_cameras, residuals,  
+                                   // outputs
+                                  mean_residuals, indiv_residuals, num_point_observations);
+
+    // Write out a .csv file recording the residual error at each location on the ground
+    write_residual_map(mean_residuals, indiv_residuals,  
+                       num_point_observations, num_points, num_cameras,
+                       points_vec,
+                       cnet, datum, output_path, opt);
+}
+
+  
+// Read xyz for each col and row. Average values. Assume that we will
+// read at most two such files.
+void read_xyz(std::map< std::pair<float, float>, Vector3> & xyz, std::string const& filename) {
+  std::ifstream ifs(filename.c_str());
+
+  float col, row;
+  double x, y, z;
+  while (ifs >> col >> row >> x >> y >> z) {
+
+    //std::cout << "--Read " << col << ' ' << row << ' ' << x << ' ' << y << ' ' << z << std::endl;
+    std::pair<float, float> P(col, row);
+    if (xyz.find(P) == xyz.end()) {
+      // std::cout << "--no average" << std::endl;
+      xyz[P] = Vector3(x, y, z);
+    }else{
+      // std::cout << "--yes average" << std::endl;
+      xyz[P] = (xyz[P] + Vector3(x, y, z))/2;
+    }
+  }
+  
+}
+
 
 void handle_arguments(int argc, char *argv[], Options& opt) {
   po::options_description general_options("");
@@ -294,8 +439,14 @@ void handle_arguments(int argc, char *argv[], Options& opt) {
      "Set the maximum number of iterations.") 
     ("min-triangulation-angle",      po::value(&opt.min_triangulation_angle)->default_value(1e-8),
      "The minimum angle, in degrees, at which rays must meet at a triangulated point to accept this point as valid. It must be a positive value.")
+    ("horiz-weight",      po::value(&opt.horiz_weight)->default_value(-1),
+     "The horizontal weight to use to constrain the triangulated points to the initial values.")
+    ("vert-weight",      po::value(&opt.vert_weight)->default_value(-1),
+     "The vertical weight to use to constrain the triangulated points to the initial values.")
     ("images-to-use",  po::value(&opt.images_to_use)->default_value(""),
-     "Out of the provided images, use 'pan,ms7', 'pan,ms8', or 'pan,ms7,ms8'.");
+     "Out of the provided images, use 'pan,ms7', 'pan,ms8', or 'pan,ms7,ms8'.")
+    ("read-xyz-on-dem",   po::bool_switch(&opt.read_xyz_on_dem)->default_value(false),
+     "Read externally computed xyz values on the DEM ray intersections should constrain to.");
 
   general_options.add(vw::cartography::GdalWriteOptionsDescription(opt));
   
@@ -349,6 +500,10 @@ void handle_arguments(int argc, char *argv[], Options& opt) {
   // StereoModel.cc. Better keep it this way than make too many changes there.
   if ( opt.min_triangulation_angle <= 0.0 )
     vw_throw( ArgumentErr() << "The minimum triangulation angle must be positive.\n"
+                            << usage << general_options );
+
+  if ( opt.horiz_weight < 0.0 || opt.vert_weight < 0 )
+    vw_throw( ArgumentErr() << "The horizontal and vertical weights must be non-negative.\n"
                             << usage << general_options );
   
   // Create the directory in which the output image will be written.
@@ -404,16 +559,18 @@ int main(int argc, char* argv[]) {
     std::cout << "ms_offset = " << pan_dg_cam->m_ms_offset << " for " << opt.pan_image<< std::endl;
     std::cout << "ms_offset = " << ms7_dg_cam->m_ms_offset << " for " << opt.ms7_image<< std::endl;
     std::cout << "ms_offset = " << ms8_dg_cam->m_ms_offset << " for " << opt.ms8_image<< std::endl;
+
+    std::cout << "--horiz weight = " << opt.horiz_weight << std::endl;
+    std::cout << "--vert weight = " << opt.vert_weight << std::endl;
     
-    int num = 10;
-    std::vector<double> coeffs(2*num+1, 0);
+    std::vector<double> coeffs(2 * opt.num_frequencies + 1, 0);
     //coeffs.back() = 1e-4; // temporary!
 
-    for (size_t it = 0; it < coeffs.size(); it++) {
-      std::cout << "---coeff is " << it << ' ' << coeffs[it] << std::endl;
-    }
+    std::cout << "export ADJ='";
+    for (int it = 0; it < int(coeffs.size()) - 1; it++) 
+      std::cout << coeffs[it] << " ";
+    std::cout << coeffs.back() << "'\n";
     
-//     int num =
 #if 0
     int mode = 1;
     asp::LinescanModelFreq f_ms8_cam(ms8_dg_cam, mode);
@@ -432,7 +589,7 @@ int main(int argc, char* argv[]) {
         Vector3 xyz = ctr1 + 600000 * dir1;
         Vector2 pix1 = ms8_dg_cam->point_to_pixel(xyz);
         Vector2 pix2 = f_ms8_cam.point_to_pixel(xyz);
-        std::cout << "--diff3 is " << pix1 << ' ' << pix2 << ' ' << norm_2(pix1 - pix2) << std::endl;
+        std::cout << "--diff3 is " << pix1 << ' ' << pix2 << ' ' << norm_2(pix1 - pix2) << "\n";
       }
     }
 #endif
@@ -450,7 +607,7 @@ int main(int argc, char* argv[]) {
 
     bool least_squares = false;
     vw::stereo::StereoModel sm(pan_dg_cam, ms8_dg_cam, least_squares,
-                               opt.min_triangulation_angle*M_PI/180.0 );
+                               opt.min_triangulation_angle*M_PI/180.0);
 
     std::string res_file = opt.out_prefix + "-residuals.csv";
     std::cout << "Writing: " << res_file << std::endl;
@@ -504,20 +661,33 @@ int main(int argc, char* argv[]) {
       images.push_back(opt.ms8_image);
       cameras.push_back(ms8_cam);
     }
+
+    std::map< std::pair<float, float>, Vector3> xyz_map;
     
     if (opt.images_to_use == "pan,ms7") {
-      match_files[std::pair<int, int>(0, 1)]
-        = ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms7_image);
+      std::string match_file = ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms7_image);
+      match_files[std::pair<int, int>(0, 1)] = match_file;
+      if (opt.read_xyz_on_dem)
+        read_xyz(xyz_map, match_file + ".xyz");
     }
+    
     if (opt.images_to_use == "pan,ms8") {
-      match_files[std::pair<int, int>(0, 1)]
-       = ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms8_image);
+      std::string match_file = ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms8_image);
+      match_files[std::pair<int, int>(0, 1)] = match_file;
+      if (opt.read_xyz_on_dem)
+        read_xyz(xyz_map, match_file + ".xyz");
     }
+    
     if (opt.images_to_use == "pan,ms7,ms8") {
-      match_files[std::pair<int, int>(0, 1)]
-        = ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms7_image);
-      match_files[std::pair<int, int>(0, 2)]
-       = ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms8_image);
+      std::string match_file = ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms7_image);
+      match_files[std::pair<int, int>(0, 1)] = match_file;
+      if (opt.read_xyz_on_dem)
+        read_xyz(xyz_map, match_file + ".xyz");
+
+      match_file = ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms8_image);
+      match_files[std::pair<int, int>(0, 2)] = match_file;
+      if (opt.read_xyz_on_dem)
+        read_xyz(xyz_map, match_file + ".xyz");
     }
     
     int min_matches = 30;
@@ -533,9 +703,37 @@ int main(int argc, char* argv[]) {
     
     if (!success)
       vw_throw( ArgumentErr() << "Insufficient number of matches to solve for jitter.\n" );
+
+    // Overwrite xyz to force them to be on the DEM
+    if (opt.horiz_weight > 0 || opt.vert_weight > 0) {
+      CRNJ crn_tmp;
+      crn_tmp.read_controlnetwork(cnet);
+      int num_cameras = crn_tmp.size();
+      
+      for (int icam = 0; icam < num_cameras; icam++) { // Camera loop
+        for (crn_iter fiter = crn_tmp[icam].begin(); fiter != crn_tmp[icam].end(); fiter++){
+          
+          // The index of the 3D point this IP is for.
+          int ipt = (**fiter).m_point_id;
+          
+          Vector2 observation = (**fiter).m_location;
+          std::pair<float, float> obs(float(observation.x()), float(observation.y()));
+
+          if (icam == 0) {
+            // Index each xyz by the ip position in the pan camera (icam == 0)
+            if (xyz_map.find(obs) == xyz_map.end()) 
+              vw::vw_throw( vw::ArgumentErr() << "Expecting observation to be in the xyz map.\n\n");
+
+            cnet[ipt].set_position(xyz_map[obs]);
+          }
+          
+        }
+      }
+    }
     
     int num_points = cnet.size();
     std::cout << "Number of points in the network " << num_points << std::endl;
+
     std::vector<double> points_vec(num_points*NUM_POINT_PARAMS, 0.0);
     for (int ipt = 0; ipt < num_points; ipt++){
       for (int q = 0; q < NUM_POINT_PARAMS; q++){
@@ -584,16 +782,17 @@ int main(int argc, char* argv[]) {
         // The observed value for the projection of point with index ipt into
         // the camera with index icam.
         Vector2 observation = (**fiter).m_location;
-        
+
+        // Note that xyz and point below must have the same value at this stage
         Vector3 xyz = cnet[ipt].position();
+
+        // Each observation corresponds to a pair of a camera and a point
+        double * point = points + ipt * NUM_POINT_PARAMS;
 
         Vector2 pix = cameras[icam]->point_to_pixel(xyz);
         Vector2 diff = pix - observation;
 
-        Vector3 llh = datum.cartesian_to_geodetic(xyz);
-
-        // Each observation corresponds to a pair of a camera and a point
-        double * point = points + ipt * NUM_POINT_PARAMS;
+        // Vector3 llh = datum.cartesian_to_geodetic(xyz);
 
         // Need to add here the pointer to the given DG camera
         
@@ -612,44 +811,32 @@ int main(int argc, char* argv[]) {
       } // end iterating over points
     } // end iterating over cameras
 
-    std::vector<double> residuals;
-    std::vector<double> mean_residuals;
-    std::vector< std::vector<double> > indiv_residuals;
-    std::vector<int> num_point_observations;
-    
-    compute_residuals(opt, cam_residual_counts, problem, residuals);
-    compute_mean_residuals_at_xyz(crn, num_points, num_cameras, residuals,  
-                                   // outputs
-                                  mean_residuals, indiv_residuals, num_point_observations);
+    // Add the horizontal and vertical xyz constraints
+    if (opt.horiz_weight > 0 || opt.vert_weight > 0) {
 
-    // Write out a .csv file recording the residual error at each location on the ground
-    write_residual_map(mean_residuals, indiv_residuals,  
-                       num_point_observations, num_points, num_cameras,  
-                        cnet, datum, opt);
+      for (int ipt = 0; ipt < num_points; ipt++){
+        
+        Vector3 observation = cnet[ipt].position();
+        double * point = points + ipt * NUM_POINT_PARAMS;
+        
+        ceres::CostFunction* horiz_cost_function
+          = XYZHorizError::Create(observation, opt.horiz_weight);
+        ceres::LossFunction* horiz_loss_function = get_jitter_loss_function();
+        problem.AddResidualBlock(horiz_cost_function, horiz_loss_function, point);
+        
+        ceres::CostFunction* vert_cost_function
+          = XYZVertError::Create(observation, opt.vert_weight);
+        ceres::LossFunction* vert_loss_function = get_jitter_loss_function();
+        problem.AddResidualBlock(vert_cost_function, vert_loss_function, point);
+        
+      }
+    }
     
-//     std::string res_file = opt.out_prefix + "-residuals.csv";
-//     std::cout << "Writing: " << res_file << std::endl;
-//     std::ofstream ofs(res_file.c_str());
-//     ofs << "# lon, lat, height_above_datum, mean_residual, num_observations, indiv residuals\n";
-//     ofs.precision(18);
-    
-//     for (size_t it = 0; it < Diff[0].size(); it++) {
-      
-//       Vector3 llh = LLH[0][it];
-//       Vector2 diff1 = Diff[0][it];
-//       Vector2 diff2 = Diff[1][it];
-
-//       double mean_res = (std::abs(diff1[0]) + std::abs(diff1[1])
-//                          + std::abs(diff2[0]) + std::abs(diff2[1]))/4.0;
-      
-//       ofs << llh[0] << ", " << llh[1] << ", " << llh[2] << ", "
-//           << mean_res << ", " << 2 << ", "
-//           << diff1.x() << ", " << diff1.y() << ", "
-//           << diff2.x() << ", " << diff2.y() << std::endl;
-//     }
-//     ofs.close();
-
-    return 0;
+    std::string output_path = opt.out_prefix + "-initial_point_log.csv";
+    save_residuals(opt, crn, cnet,
+                   points_vec,
+                   problem, datum, num_points, num_cameras,  
+                   cam_residual_counts, output_path);
     
     vw::vw_out() << "Solving for jitter" << std::endl;
     Stopwatch sw;
@@ -672,12 +859,12 @@ int main(int argc, char* argv[]) {
     //if (FLAGS_line_search) {
     //  options->minimizer_type = ceres::LINE_SEARCH;
     //}
-    
-    // Use a callback function at every iteration.
-    //   PiecewiseBaCallback callback;
-    //   options.callbacks.push_back(&callback);
-    //   options.update_state_every_iteration = true; // ensure we have the latest adjustments
-    
+
+    // Freeze the free term, coeffs[0].
+    problem.SetParameterization( &coeffs[0], new ceres::SubsetParameterization(coeffs.size(), {0}));
+
+    //problem.SetParameterization(&coeffs[0], new ceres::SubsetParameterization( 9, sspv));
+  
     ceres::Solver::Summary summary;
     ceres::Solve(options, &problem, &summary);
     vw_out() << summary.FullReport() << "\n";
@@ -685,7 +872,18 @@ int main(int argc, char* argv[]) {
       // Print a clarifying message, so the user does not think that the algorithm failed.
       vw_out() << "Found a valid solution, but did not reach the actual minimum." << std::endl;
     }
+
+    output_path = opt.out_prefix + "-final_point_log.csv";
+    save_residuals(opt, crn, cnet,
+                   points_vec,
+                   problem, datum, num_points, num_cameras,  
+                   cam_residual_counts, output_path);
     
+    std::cout << "export ADJ='";
+    for (int it = 0; it < int(coeffs.size()) - 1; it++) 
+      std::cout << coeffs[it] << " ";
+    std::cout << coeffs.back() << "'\n";
+
     sw.stop();
     vw::vw_out() << "Jitter solve elapsed time: " << sw.elapsed_seconds() << std::endl;
     

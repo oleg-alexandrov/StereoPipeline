@@ -212,3 +212,11 @@ install(TARGETS cam_gen DESTINATION bin)
 add_executable(jitter_correct jitter_correct.cc)
 target_link_libraries(jitter_correct AspSessions ${SOLVER_LIBRARIES})
 install(TARGETS jitter_correct DESTINATION bin)
+
+add_executable(jitter_solve jitter_solve.cc) 
+target_link_libraries(jitter_solve AspSessions ${SOLVER_LIBRARIES})
+install(TARGETS jitter_solve DESTINATION bin)
+
+add_executable(disp_model disp_model.cc) 
+target_link_libraries(disp_model AspSessions ${SOLVER_LIBRARIES})
+install(TARGETS disp_model DESTINATION bin)
