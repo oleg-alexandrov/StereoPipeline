@@ -55,28 +55,8 @@ namespace camera {
   /// the image); it is also the flight direction.  If this is not 
   /// accurate for your camera you can apply a rotation in PoseFuncT.
 
-  inline vw::Quat get_adj(double t, double tb, double te, std::vector<double> const& coeffs,
-                          int mode) {
-    
-    // Take care of when coeffs are not initialized
-    if (coeffs.empty() || mode <= 0) {
-      return vw::Quat(vw::math::identity_matrix<3>());
-    }
-    
-    //std::cout << "t is " << t << std::endl;
-    //std::cout << "--tb and te are " << tb << ' ' << te << std::endl;
-    
-    // Normalize the value to [0, pi]. It may still go a little beyond it, depending on t.
-    double s = M_PI * (t - tb)/(te - tb);
-    
-    if (coeffs.size() % 2 != 1) {
-      vw::vw_throw( vw::ArgumentErr() << "Must have an odd number of coeffs.\n\n");
-      
-      //std::cout << "--error: Must have an odd number of coeffs" << std::endl;
-    }
-    
-    //std::cout << "--s is " << s << std::endl;
-    
+  inline vw::Quat get_adj(double s, std::vector<double> const& coeffs, int mode) {
+
     //std::cout << "--size is " << coeffs.size() << std::endl;
     double angle = coeffs[0];
     //std::cout << "--fist coeff is " << coeffs[0] << std::endl;
@@ -109,6 +89,29 @@ namespace camera {
     //std::cout << "M = " << M << std::endl;
     
     return vw::Quat(M);
+  }
+  
+  inline vw::Quat get_adj(double t, double tb, double te,
+                          std::vector<double> const& coeffsx,
+                          std::vector<double> const& coeffsy,
+                          std::vector<double> const& coeffsz) {
+    
+    // Take care of when coeffs are not initialized
+    if (coeffsx.empty() || coeffsy.empty() || coeffsz.empty()) {
+      return vw::Quat(vw::math::identity_matrix<3>());
+    }
+
+    if (coeffsx.size() != coeffsy.size() || coeffsx.size() != coeffsz.size() ) {
+      vw::vw_throw( vw::ArgumentErr() << "Must have same number of coeffs in x, y, and z.\n");
+    }
+
+    //std::cout << "t is " << t << std::endl;
+    //std::cout << "--tb and te are " << tb << ' ' << te << std::endl;
+    
+    // Normalize the value to [0, pi]. It may still go a little beyond it, depending on t.
+    double s = M_PI * (t - tb)/(te - tb);
+    
+    return get_adj(s, coeffsx, 1) * get_adj(s, coeffsy, 2) * get_adj(s, coeffsz, 3);
   }
 
   class LinescanModelASP : public vw::camera::CameraModel {
@@ -273,12 +276,15 @@ namespace asp {
                     bool                 correct_velocity=true,
                     bool                 correct_atmosphere=true,
                     double ms_offset = 0.0,
-                    std::vector<double> coeffs = std::vector<double>(), int mode = -1):
+                    std::vector<double> coeffsx = std::vector<double>(),
+                    std::vector<double> coeffsy = std::vector<double>(),
+                    std::vector<double> coeffsz = std::vector<double>()):
       vw::camera::LinescanModelASP(image_size, correct_velocity, correct_atmosphere, ms_offset),
       m_position_func(position), m_velocity_func(velocity),
       m_pose_func(pose),         m_time_func(time),
       m_detector_origin(detector_origin),
-      m_focal_length(focal_length), m_coeffs(coeffs), m_mode(mode) {
+      m_focal_length(focal_length),
+      m_coeffsx(coeffsx), m_coeffsy(coeffsy), m_coeffsz(coeffsz) {
       m_mean_surface_elevation = mean_ground_elevation; // Set base class value
 
       std::cout << "---correct_velocity = " << correct_velocity << std::endl;
@@ -296,11 +302,12 @@ namespace asp {
 
     // A time-dependent rotation around the x axis
     // There are two copies of this!
-    vw::Quat get_adj(double t, int mode) const {
-      return vw::camera::get_adj(t, m_time_func(0), m_time_func(number_of_lines() - 1), m_coeffs, mode);
+    vw::Quat get_adj(double t) const {
+      return vw::camera::get_adj(t, m_time_func(0), m_time_func(number_of_lines() - 1),
+                                 m_coeffsx, m_coeffsy, m_coeffsz);
     }
     
-    virtual vw::Quat     get_camera_pose_at_time    (double time) const { return m_pose_func(time) * get_adj(time, m_mode); }
+    virtual vw::Quat     get_camera_pose_at_time    (double time) const { return m_pose_func(time) * get_adj(time); }
 
     virtual double      get_time_at_line           (double line) const { return m_time_func    (line - m_ms_offset); }
     
@@ -346,8 +353,7 @@ namespace asp {
     PoseFuncT                                        m_pose_func;     ///< Yields pose     at time T
     vw::camera::TLCTimeInterpolation                 m_time_func;     ///< Yields time at a given line.
 
-    std::vector<double> m_coeffs; // Fourier coefficients
-    int m_mode;
+    std::vector<double> m_coeffsx, m_coeffsy, m_coeffsz; // Fourier coefficients
     
     // Intrinsics
     
@@ -567,6 +573,24 @@ inline boost::posix_time::ptime parse_time(std::string str){
   return boost::posix_time::time_from_string(str); // Never reached!
 }
 
+inline void parse_coeffs(std::vector<double> & coeffs, std::string const& var,
+                           std::string const& band_id) {
+
+  coeffs.clear();
+  char * var_ptr = getenv(var.c_str());
+  if (var_ptr != NULL && band_id != "NoAdj") {
+    std::istringstream ifs(var_ptr);
+    double val;
+    std::cout << var << " = ";
+    while (ifs >> val) {
+      coeffs.push_back(val);
+      std::cout << val << " ";
+    }
+    std::cout << std::endl;
+  }
+  std::cout << "size of coeffs for " << var << " = " << coeffs.size() << std::endl;
+}
+  
 boost::shared_ptr<DGCameraModel> load_dg_camera_model_from_xml(std::string const& path){
   //vw_out() << "DEBUG - Loading DG camera file: " << camera_file << std::endl;
 
@@ -615,33 +639,13 @@ boost::shared_ptr<DGCameraModel> load_dg_camera_model_from_xml(std::string const
   
   std::cout << "--band id is " << band_id << std::endl;
   std::cout << "--ms offset is " << ms_offset << std::endl;
-  
-  std::vector<double> coeffs;
-  char * adj = getenv("ADJ");
-  //std::cout << "--adj is " << adj << std::endl;
-  if (adj != NULL && band_id != "NoAdj") {
-    std::cout << "adj is not null!" << std::endl;
-    coeffs.clear();
-    std::istringstream ifs(adj);
-    double val;
-    while (ifs >> val) {
-      coeffs.push_back(val);
-      std::cout << "--coeff is " << val << std::endl;
-    }
-  }else{
-    std::cout << "--adj is null!" << std::endl;
-  }
 
-  std::cout << "size of coeffs is " << coeffs.size() << std::endl;
+  std::vector<double> coeffsx, coeffsy, coeffsz;
+  parse_coeffs(coeffsx, "ADJX", band_id);
+  parse_coeffs(coeffsy, "ADJY", band_id);
+  parse_coeffs(coeffsz, "ADJZ", band_id);
   
-  char * m = getenv("MODE");
-  int mode = -1;
-  if (m != NULL) 
-    mode = atoi(m);
-  std::cout << "--mode is " << mode << std::endl;
-  
-
-    // Get an estimate of the surface elevation from the corners specified in the file.
+  // Get an estimate of the surface elevation from the corners specified in the file.
   // - Not every file has this information, in which case we will just use zero.
   double mean_ground_elevation = 0;
   vw::BBox3 bbox = rpc.get_lon_lat_height_box();
@@ -759,7 +763,7 @@ boost::shared_ptr<DGCameraModel> load_dg_camera_model_from_xml(std::string const
                          mean_ground_elevation,
                          !stereo_settings().disable_correct_velocity_aberration,
                          !stereo_settings().disable_correct_atmospheric_refraction, ms_offset,
-                         coeffs, mode));
+                         coeffsx, coeffsy, coeffsz));
 } // End function load_dg_camera_model()
   
 
@@ -769,20 +773,19 @@ class LinescanModelFreq: public vw::camera::CameraModel {
   
 public:
   DGCameraModel * m_cam;
-  std::vector<double> m_coeffs; // Fourier coefficients
-  int m_mode;
+  std::vector<double> m_coeffsx, m_coeffsy, m_coeffsz; // Fourier coefficients
   
 public:
-  LinescanModelFreq(DGCameraModel * cam, int mode): m_cam(cam), m_mode(mode) {}
+  LinescanModelFreq(DGCameraModel * cam): m_cam(cam) {}
   
   virtual ~LinescanModelFreq() {}
   virtual std::string type() const { return "LinescanModelFreq"; }
   
   // A time-dependent rotation around the x axis
   // There are two copies of this!
-  vw::Quat get_adj(double t, int mode) const {
+  vw::Quat get_adj(double t) const {
     return vw::camera::get_adj(t, m_cam->m_time_func(0), m_cam->m_time_func(number_of_lines() - 1),
-                               m_coeffs, mode);
+                               m_coeffsx, m_coeffsy, m_coeffsz);
   }
   
   /// Gives the camera position in world coordinates.
@@ -792,7 +795,7 @@ public:
 
   /// Gives a pose vector which represents the rotation from camera to world units
   virtual vw::Quat camera_pose(vw::Vector2 const& pix) const {
-    if (!m_coeffs.empty() && !m_cam->m_coeffs.empty()) {
+    if (!m_coeffsx.empty() && !m_cam->m_coeffsx.empty()) {
       vw_throw(vw::camera::PixelToRayErr() << "Cannot have both the unadjusted and "
                << "adjusted cameras have frequency modulation");
     }
@@ -822,7 +825,7 @@ public:
   
   /// Get the pose at a time.
   virtual vw::Quat get_camera_pose_at_time(double time) const {
-    return m_cam->get_camera_pose_at_time(time) * get_adj(time, m_mode);
+    return m_cam->get_camera_pose_at_time(time) * get_adj(time);
   }
 
   /// Return the computed time for a given line.

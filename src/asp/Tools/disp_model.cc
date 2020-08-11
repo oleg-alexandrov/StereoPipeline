@@ -294,22 +294,10 @@ int main(int argc, char* argv[]) {
     std::cout << "image size " << dispx.cols() << ' ' << dispx.rows() << std::endl;
     std::cout << "--imagesize 4 " << dispy.cols() << ' ' << dispy.rows() << std::endl;
     
-    std::vector<double> coeffs;
-    char * adj = getenv("ADJ_TMP");
-    if (adj != NULL) {
-      std::cout << "adj is not null!" << std::endl;
-      coeffs.clear();
-      std::istringstream ifs(adj);
-      double val;
-      while (ifs >> val) {
-        coeffs.push_back(val);
-        std::cout << "--coeff is " << val << std::endl;
-      }
-    }else{
-      std::cout << "--adj is null!" << std::endl;
-    }
-    
-    std::cout << "size of coeffs is " << coeffs.size() << std::endl;
+    std::vector<double> coeffsx, coeffsy, coeffsz;
+    asp::parse_coeffs(coeffsx, "ADJX", "Multi");
+    asp::parse_coeffs(coeffsy, "ADJY", "Multi");
+    asp::parse_coeffs(coeffsz, "ADJZ", "Multi");
 
     // Matches from PAN image to raw MS image
     std::vector<vw::ip::InterestPoint> left_ip, right_ip;
@@ -327,8 +315,13 @@ int main(int argc, char* argv[]) {
         //std::cout << "--pan pixel val is " << pan_pix << std::endl;
 
         // Add jitter to cameras
-        pan_dg_cam->m_coeffs = coeffs;
-        ms_dg_cam->m_coeffs  = coeffs;
+        pan_dg_cam->m_coeffsx = coeffsx;
+        pan_dg_cam->m_coeffsy = coeffsy;
+        pan_dg_cam->m_coeffsz = coeffsz;
+        
+        ms_dg_cam->m_coeffsx = coeffsx;
+        ms_dg_cam->m_coeffsy = coeffsy;
+        ms_dg_cam->m_coeffsz = coeffsz;
         
         // Project from the PAN camera into the ground
         bool   has_intersection     = false;
@@ -365,8 +358,13 @@ int main(int argc, char* argv[]) {
         // Now compute the disparity due to the jitter
         // So we use pixels measured with jitter
         // but cameras without jitter.
-        pan_dg_cam->m_coeffs = std::vector<double>();
-        ms_dg_cam->m_coeffs  = std::vector<double>();
+        pan_dg_cam->m_coeffsx = std::vector<double>();
+        pan_dg_cam->m_coeffsy = std::vector<double>();
+        pan_dg_cam->m_coeffsz = std::vector<double>();
+        
+        ms_dg_cam->m_coeffsx = std::vector<double>();
+        ms_dg_cam->m_coeffsy = std::vector<double>();
+        ms_dg_cam->m_coeffsz = std::vector<double>();
         
         camera_ctr = ms_dg_cam->camera_center(ms_pix); 
         camera_vec = ms_dg_cam->pixel_to_vector(ms_pix);
@@ -448,14 +446,14 @@ int main(int argc, char* argv[]) {
       }
     }
 
-    std::string disp_x3_file = "disp_x3.tif";
-    std::string disp_y3_file = "disp_y3.tif";
+//     std::string disp_x3_file = opt.out_prefix + "disp_x3.tif";
+//     std::string disp_y3_file = "disp_y3.tif";
 
-    std::string disp_x4_file = "disp_x4.tif";
-    std::string disp_y4_file = "disp_y4.tif";
+//     std::string disp_x4_file = "disp_x4.tif";
+//     std::string disp_y4_file = "disp_y4.tif";
 
-    std::string disp_x_file = "disp_x.tif";
-    std::string disp_y_file = "disp_y.tif";
+    std::string disp_x_file = opt.out_prefix + "-disp_x.tif";
+    std::string disp_y_file = opt.out_prefix + "-disp_y.tif";
     bool has_georef = false, has_nodata = false;
     vw::cartography::GeoReference georef;
     double nodata = 0;

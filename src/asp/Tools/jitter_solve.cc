@@ -49,9 +49,9 @@ const int PIXEL_SIZE = 2;
 
 struct Options : vw::cartography::GdalWriteOptions {
   std::string pan_image, ms7_image, ms8_image, pan_camera, ms7_camera, ms8_camera, out_prefix,
-    images_to_use;
+    images_to_use, mode;
   int num_frequencies; // TODO(oalexan1): Use instead the frequency, in Hz
-  int ms_offset, mode, num_iterations;
+  int ms_offset, num_iterations;
   double min_triangulation_angle, horiz_weight, vert_weight;
   bool read_xyz_on_dem;
 };
@@ -60,11 +60,10 @@ struct Options : vw::cartography::GdalWriteOptions {
 ///  The result is the residual, the difference in the observation 
 ///  and the projection of the point into the camera.
 struct ReprojectionError {
-  ReprojectionError(Vector2 const& observation, CamPtr cam, int mode,
+  ReprojectionError(Vector2 const& observation, CamPtr cam, 
                     std::vector<int> const& block_sizes):
     m_observation(observation),
     m_cam(cam),
-    m_mode(mode),
     m_block_sizes(block_sizes){}
 
   // Call to work with ceres::DynamicCostFunctions. Takes array of
@@ -85,19 +84,24 @@ struct ReprojectionError {
      //std::cout << "--cam offset is " << dg_cam->m_ms_offset << std::endl;
     
     // Create the camera
-    asp::LinescanModelFreq freq_cam(dg_cam, m_mode);
-    int num_coeffs = m_block_sizes[0];
-     //std::cout << "---num coeffs is " << num_coeffs << std::endl;
-    freq_cam.m_coeffs.resize(num_coeffs);
-    for (int it = 0; it < num_coeffs; it++) {
-       //std::cout << "--copy coeff: " << parameters[0][it] << std::endl;
-      freq_cam.m_coeffs[it] = parameters[0][it];
-    }
+    asp::LinescanModelFreq freq_cam(dg_cam);
 
+    int num_coeffsx = m_block_sizes[0];
+    freq_cam.m_coeffsx.resize(num_coeffsx);
+    for (int it = 0; it < num_coeffsx; it++) freq_cam.m_coeffsx[it] = parameters[0][it];
+    
+    int num_coeffsy = m_block_sizes[1];
+    freq_cam.m_coeffsy.resize(num_coeffsy);
+    for (int it = 0; it < num_coeffsy; it++) freq_cam.m_coeffsy[it] = parameters[1][it];
+
+    int num_coeffsz = m_block_sizes[2];
+    freq_cam.m_coeffsz.resize(num_coeffsz);
+    for (int it = 0; it < num_coeffsz; it++) freq_cam.m_coeffsz[it] = parameters[2][it];
+    
     // Create the point
     Vector3 xyz;
-    for (int it = 0; it < m_block_sizes[1]; it++) {
-      xyz[it] = parameters[1][it];
+    for (int it = 0; it < m_block_sizes[3]; it++) {
+      xyz[it] = parameters[3][it];
     }
      //std::cout << "--got xyz = " << xyz << std::endl;
     
@@ -130,16 +134,15 @@ struct ReprojectionError {
 
   // Factory to hide the construction of the CostFunction object from the client code.
   static ceres::CostFunction* Create(Vector2 const& observation, CamPtr cam,
-                                     int mode, 
                                      std::vector<int> const& block_sizes){
     ceres::DynamicNumericDiffCostFunction<ReprojectionError>* cost_function =
       new ceres::DynamicNumericDiffCostFunction<ReprojectionError>
-      (new ReprojectionError(observation, cam, mode, block_sizes));
+      (new ReprojectionError(observation, cam, block_sizes));
     
     // The residual size is always the same.
     cost_function->SetNumResiduals(PIXEL_SIZE);
 
-    // The camera wrapper knows all of the block sizes to add.
+    // Set the size of each optimization block
     for (size_t i = 0; i < block_sizes.size(); i++) {
       cost_function->AddParameterBlock(block_sizes[i]);
     }
@@ -149,7 +152,6 @@ struct ReprojectionError {
 private:
   Vector2 m_observation; // The pixel observation for this camera/point pair
   CamPtr m_cam;
-  int m_mode;
   std::vector<int> m_block_sizes;
 }; // End class ReprojectionError
 
@@ -433,8 +435,6 @@ void handle_arguments(int argc, char *argv[], Options& opt) {
      "Number of jitter frequencies.")
     ("ms-offset",  po::value(&opt.ms_offset)->default_value(0),
      "Number of lines of offset between the multispectral and pan cameras.")
-    ("mode",  po::value(&opt.mode)->default_value(0),
-     "The mode of jitter to model (1 = along-track, 2 = across track 3 = along camera's z axis).")
     ("num-iterations",       po::value(&opt.num_iterations)->default_value(1000),
      "Set the maximum number of iterations.") 
     ("min-triangulation-angle",      po::value(&opt.min_triangulation_angle)->default_value(1e-8),
@@ -445,6 +445,8 @@ void handle_arguments(int argc, char *argv[], Options& opt) {
      "The vertical weight to use to constrain the triangulated points to the initial values.")
     ("images-to-use",  po::value(&opt.images_to_use)->default_value(""),
      "Out of the provided images, use 'pan,ms7', 'pan,ms8', or 'pan,ms7,ms8'.")
+    ("mode",  po::value(&opt.mode)->default_value(""),
+     "Optimize the following frequencies: 'x', 'y', 'z', 'xy', 'xz', 'yz', 'xyz'.")
     ("read-xyz-on-dem",   po::bool_switch(&opt.read_xyz_on_dem)->default_value(false),
      "Read externally computed xyz values on the DEM ray intersections should constrain to.");
 
@@ -490,10 +492,6 @@ void handle_arguments(int argc, char *argv[], Options& opt) {
 
   if (opt.ms_offset <= 0) 
     vw::vw_throw( vw::ArgumentErr() << "Expecting a positive MS offset.\n\n"
-                  << usage << general_options );
-
-  if (opt.mode <= 0) 
-    vw::vw_throw( vw::ArgumentErr() << "Expecting a positive mode.\n\n"
                   << usage << general_options );
 
   // NOTE(oalexan1): The reason min_triangulation_angle cannot be 0 is deep inside
@@ -556,6 +554,18 @@ int main(int argc, char* argv[]) {
     ms7_dg_cam->m_ms_offset = -opt.ms_offset;
     ms8_dg_cam->m_ms_offset = opt.ms_offset;
 
+    pan_dg_cam->m_coeffsx = std::vector<double>();
+    pan_dg_cam->m_coeffsy = std::vector<double>();
+    pan_dg_cam->m_coeffsz = std::vector<double>();
+    
+    ms7_dg_cam->m_coeffsx = std::vector<double>();
+    ms7_dg_cam->m_coeffsy = std::vector<double>();
+    ms7_dg_cam->m_coeffsz = std::vector<double>();
+    
+    ms8_dg_cam->m_coeffsx = std::vector<double>();
+    ms8_dg_cam->m_coeffsy = std::vector<double>();
+    ms8_dg_cam->m_coeffsz = std::vector<double>();
+
     std::cout << "ms_offset = " << pan_dg_cam->m_ms_offset << " for " << opt.pan_image<< std::endl;
     std::cout << "ms_offset = " << ms7_dg_cam->m_ms_offset << " for " << opt.ms7_image<< std::endl;
     std::cout << "ms_offset = " << ms8_dg_cam->m_ms_offset << " for " << opt.ms8_image<< std::endl;
@@ -563,87 +573,21 @@ int main(int argc, char* argv[]) {
     std::cout << "--horiz weight = " << opt.horiz_weight << std::endl;
     std::cout << "--vert weight = " << opt.vert_weight << std::endl;
     
-    std::vector<double> coeffs(2 * opt.num_frequencies + 1, 0);
-    //coeffs.back() = 1e-4; // temporary!
+    std::vector<double> coeffsx(2 * opt.num_frequencies + 1, 0);
+    std::vector<double> coeffsy(2 * opt.num_frequencies + 1, 0);
+    std::vector<double> coeffsz(2 * opt.num_frequencies + 1, 0);
 
-    std::cout << "export ADJ='";
-    for (int it = 0; it < int(coeffs.size()) - 1; it++) 
-      std::cout << coeffs[it] << " ";
-    std::cout << coeffs.back() << "'\n";
+    std::cout << "export ADJX='";
+    for (int it = 0; it < int(coeffsx.size()) - 1; it++) std::cout << coeffsx[it] << " ";
+    std::cout << coeffsx.back() << "'\n";
     
-#if 0
-    int mode = 1;
-    asp::LinescanModelFreq f_ms8_cam(ms8_dg_cam, mode);
+    std::cout << "export ADJY='";
+    for (int it = 0; it < int(coeffsy.size()) - 1; it++) std::cout << coeffsy[it] << " ";
+    std::cout << coeffsy.back() << "'\n";
 
-    for (int col = 0; col < 100; col++) {
-      for (int row = 0; row < 100; row++) {
-        Vector2 pix(col, row);
-        Vector3 ctr1 = ms8_dg_cam->camera_center(pix);
-        Vector3 ctr2 = f_ms8_cam.camera_center(pix);
-        std::cout << "-diff1 is " << ctr1 << ' ' << ctr2 << ' ' << norm_2(ctr1-ctr2) << std::endl;
-
-        Vector3 dir1 = ms8_dg_cam->pixel_to_vector(pix);
-        Vector3 dir2 = f_ms8_cam.pixel_to_vector(pix);
-        std::cout << "-diff2 is " << dir1 << ' ' << dir2 << ' ' << norm_2(dir1-dir2) << std::endl;
-
-        Vector3 xyz = ctr1 + 600000 * dir1;
-        Vector2 pix1 = ms8_dg_cam->point_to_pixel(xyz);
-        Vector2 pix2 = f_ms8_cam.point_to_pixel(xyz);
-        std::cout << "--diff3 is " << pix1 << ' ' << pix2 << ' ' << norm_2(pix1 - pix2) << "\n";
-      }
-    }
-#endif
-#if 0
-    // Two cameras
-    std::string match_filename = ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms8_image);
-
-    std::cout << "--reading binary match file " << match_filename << std::endl;
-    
-    std::vector<ip::InterestPoint> ip1, ip2;
-    ip::read_binary_match_file(match_filename, ip1, ip2);
-    
-    std::cout << "--now here!" << std::endl;
-    std::cout << "number of ip is " << ip1.size() << ' ' << ip2.size() << std::endl;
-
-    bool least_squares = false;
-    vw::stereo::StereoModel sm(pan_dg_cam, ms8_dg_cam, least_squares,
-                               opt.min_triangulation_angle*M_PI/180.0);
-
-    std::string res_file = opt.out_prefix + "-residuals.csv";
-    std::cout << "Writing: " << res_file << std::endl;
-    std::ofstream ofs(res_file.c_str());
-
-    // TODO(oalexan1): Get the datum from the stereo session
-    vw::cartography::Datum datum("WGS84");
-    std::cout << "--datum is " << datum << std::endl;
-    
-    ofs << "# lon, lat, height_above_datum, mean_residual, num_observations, indiv residuals\n";
-    ofs.precision(18);
-    
-    for (size_t it = 0; it < ip1.size(); it++) {
-      Vector3 err;
-      Vector2 p1 = Vector2(ip1[it].x, ip1[it].y);
-      Vector2 p2 = Vector2(ip2[it].x, ip2[it].y);
-      Vector3 xyz = sm(p1, p2, err);
-      
-      Vector2 pix1 = pan_dg_cam->point_to_pixel(xyz);
-      Vector2 pix2 = ms8_dg_cam->point_to_pixel(xyz);
-
-      Vector2 diff1 = pix1 - p1;
-      Vector2 diff2 = pix2 - p2;
-
-      double mean_res = (std::abs(diff1[0]) + std::abs(diff1[1])
-                         + std::abs(diff2[0]) + std::abs(diff2[1]))/4.0;
-      
-      Vector3 llh = datum.cartesian_to_geodetic(xyz);
-
-      ofs << llh[0] << ", " << llh[1] << ", " << llh[2] << ", "
-          << mean_res << ", " << 2 << ", "
-          << diff1.x() << ", " << diff1.y() << ", "
-          << diff2.x() << ", " << diff2.y() << std::endl;
-    }
-    ofs.close();
-#endif
+    std::cout << "export ADJZ='";
+    for (int it = 0; it < int(coeffsz.size()) - 1; it++) std::cout << coeffsz[it] << " ";
+    std::cout << coeffsz.back() << "'\n";
 
     // 3 cameras and images
     std::vector<std::string> images;
@@ -750,7 +694,9 @@ int main(int argc, char* argv[]) {
 
     // The size of each vector that we optimize
     std::vector<int> block_sizes;
-    block_sizes.push_back(coeffs.size());
+    block_sizes.push_back(coeffsx.size());
+    block_sizes.push_back(coeffsy.size());
+    block_sizes.push_back(coeffsz.size());
     block_sizes.push_back(NUM_POINT_PARAMS);
     
     // The ceres problem
@@ -797,11 +743,12 @@ int main(int argc, char* argv[]) {
         // Need to add here the pointer to the given DG camera
         
         ceres::CostFunction* cost_function =
-          ReprojectionError::Create(observation, cameras[icam], opt.mode, block_sizes);
+          ReprojectionError::Create(observation, cameras[icam], block_sizes);
 
         ceres::LossFunction* loss_function = get_jitter_loss_function();
         
-        problem.AddResidualBlock(cost_function, loss_function, &coeffs[0], point);
+        problem.AddResidualBlock(cost_function, loss_function,
+                                 &coeffsx[0], &coeffsy[0], &coeffsz[0], point);
 
         cam_residual_counts[icam] += 1; // Track the number of residual blocks for each camera
         
@@ -860,11 +807,35 @@ int main(int argc, char* argv[]) {
     //  options->minimizer_type = ceres::LINE_SEARCH;
     //}
 
-    // Freeze the free term, coeffs[0].
-    problem.SetParameterization( &coeffs[0], new ceres::SubsetParameterization(coeffs.size(), {0}));
-
-    //problem.SetParameterization(&coeffs[0], new ceres::SubsetParameterization( 9, sspv));
-  
+    if (opt.mode == "x") {
+      // Freeze the free term, coeffsx[0].
+      problem.SetParameterization( &coeffsx[0],
+                                   new ceres::SubsetParameterization(coeffsx.size(), {0}));
+      // Fix all y and z coeffs
+      problem.SetParameterBlockConstant(&coeffsy[0]);
+      problem.SetParameterBlockConstant(&coeffsz[0]);
+    } else if (opt.mode == "y") {
+      // Freeze the free term, coeffsy[0].
+      problem.SetParameterization( &coeffsy[0],
+                                   new ceres::SubsetParameterization(coeffsy.size(), {0}));
+      // Fix all x and z coeffs
+      problem.SetParameterBlockConstant(&coeffsx[0]);
+      problem.SetParameterBlockConstant(&coeffsz[0]);
+    } else if (opt.mode == "xy") {
+      // Freeze the free term, coeffsx[0].
+      problem.SetParameterization( &coeffsx[0],
+                                   new ceres::SubsetParameterization(coeffsx.size(), {0}));
+      // Freeze the free term, coeffsy[0].
+      problem.SetParameterization( &coeffsy[0],
+                                   new ceres::SubsetParameterization(coeffsy.size(), {0}));
+      // Fix all z coeffs
+      problem.SetParameterBlockConstant(&coeffsz[0]);
+      
+    } else {
+      vw::vw_throw( vw::ArgumentErr() << "Unknown mode: " << opt.mode << ".\n\n");
+    }
+    
+    
     ceres::Solver::Summary summary;
     ceres::Solve(options, &problem, &summary);
     vw_out() << summary.FullReport() << "\n";
@@ -879,10 +850,17 @@ int main(int argc, char* argv[]) {
                    problem, datum, num_points, num_cameras,  
                    cam_residual_counts, output_path);
     
-    std::cout << "export ADJ='";
-    for (int it = 0; it < int(coeffs.size()) - 1; it++) 
-      std::cout << coeffs[it] << " ";
-    std::cout << coeffs.back() << "'\n";
+    std::cout << "export ADJX='";
+    for (int it = 0; it < int(coeffsx.size()) - 1; it++) std::cout << coeffsx[it] << " ";
+    std::cout << coeffsx.back() << "'\n";
+    
+    std::cout << "export ADJY='";
+    for (int it = 0; it < int(coeffsy.size()) - 1; it++) std::cout << coeffsy[it] << " ";
+    std::cout << coeffsy.back() << "'\n";
+
+    std::cout << "export ADJZ='";
+    for (int it = 0; it < int(coeffsz.size()) - 1; it++) std::cout << coeffsz[it] << " ";
+    std::cout << coeffsz.back() << "'\n";
 
     sw.stop();
     vw::vw_out() << "Jitter solve elapsed time: " << sw.elapsed_seconds() << std::endl;
