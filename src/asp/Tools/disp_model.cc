@@ -34,8 +34,9 @@ using namespace vw;
 
 struct Options : vw::cartography::GdalWriteOptions {
   std::string pan_image, pan_camera, ms_camera, bundle_adjust_prefix, dem, pan_to_ms_disp,
-    proc_ms_image, out_prefix;
+    ms_image, out_prefix;
   int num_matches;
+  bool synthetic_jitter;
 };
 
 void handle_arguments(int argc, char *argv[], Options& opt) {
@@ -48,6 +49,8 @@ void handle_arguments(int argc, char *argv[], Options& opt) {
      "The disparity from the PAN image to the processed MS image.")
     ("num-matches",  po::value(&opt.num_matches)->default_value(0),
      "How many matches to find between the MS and PAN image.")
+    ("synthetic-jitter",   po::bool_switch(&opt.synthetic_jitter)->default_value(false),
+     "Form synthetic jitter by using ADJX, ADJY and ADJZ env vars rather than from disparity.")
     ("output-prefix,o",  po::value(&opt.out_prefix),
      "Prefix for output filenames.");
 
@@ -56,7 +59,7 @@ void handle_arguments(int argc, char *argv[], Options& opt) {
   po::options_description positional("");
   positional.add_options()
     ("pan-image", po::value(&opt.pan_image))
-    ("proc-ms-image", po::value(&opt.proc_ms_image))
+    ("proc-ms-image", po::value(&opt.ms_image))
     ("pan-camera", po::value(&opt.pan_camera))
     ("ms-camera", po::value(&opt.ms_camera));
   
@@ -205,7 +208,7 @@ int main(int argc, char* argv[]) {
     SessionPtr session(asp::StereoSessionFactory::create(session_str, // may change
                                                          opt,
                                                          opt.pan_image,
-                                                         opt.proc_ms_image,
+                                                         opt.ms_image,
                                                          opt.pan_camera,
                                                          opt.ms_camera,
                                                          out_prefix));
@@ -215,7 +218,7 @@ int main(int argc, char* argv[]) {
                                                                            opt.pan_camera);
 
     // Load the ms camera
-    boost::shared_ptr<vw::camera::CameraModel> ms_cam = session->camera_model(opt.proc_ms_image,
+    boost::shared_ptr<vw::camera::CameraModel> ms_cam = session->camera_model(opt.ms_image,
                                                                            opt.ms_camera);
 
     asp::DGCameraModel * pan_dg_cam = dynamic_cast<asp::DGCameraModel*>(pan_cam.get());
@@ -279,15 +282,15 @@ int main(int argc, char* argv[]) {
     dispx.set_size(num_sample_cols, num_sample_rows);
     dispy.set_size(num_sample_cols, num_sample_rows);
     
-    ImageView<float> dispx3;
-    ImageView<float> dispy3;
-    dispx3.set_size(num_sample_cols, num_sample_rows);
-    dispy3.set_size(num_sample_cols, num_sample_rows);
+//     ImageView<float> dispx3;
+//     ImageView<float> dispy3;
+//     dispx3.set_size(num_sample_cols, num_sample_rows);
+//     dispy3.set_size(num_sample_cols, num_sample_rows);
 
-    ImageView<float> dispx4;
-    ImageView<float> dispy4;
-    dispx4.set_size(num_sample_cols, num_sample_rows);
-    dispy4.set_size(num_sample_cols, num_sample_rows);
+//     ImageView<float> dispx4;
+//     ImageView<float> dispy4;
+//     dispx4.set_size(num_sample_cols, num_sample_rows);
+//     dispy4.set_size(num_sample_cols, num_sample_rows);
 
     std::cout << "num sample cols and rows " << num_sample_cols << ' ' << num_sample_rows
               << std::endl;
@@ -299,6 +302,17 @@ int main(int argc, char* argv[]) {
     asp::parse_coeffs(coeffsy, "ADJY", "Multi");
     asp::parse_coeffs(coeffsz, "ADJZ", "Multi");
 
+    if (!opt.synthetic_jitter) {
+      pan_dg_cam->m_coeffsx = std::vector<double>();
+      pan_dg_cam->m_coeffsy = std::vector<double>();
+      pan_dg_cam->m_coeffsz = std::vector<double>();
+      
+      ms_dg_cam->m_coeffsx = std::vector<double>();
+      ms_dg_cam->m_coeffsy = std::vector<double>();
+      ms_dg_cam->m_coeffsz = std::vector<double>();
+    }
+
+    
     // Matches from PAN image to raw MS image
     std::vector<vw::ip::InterestPoint> left_ip, right_ip;
 
@@ -315,13 +329,26 @@ int main(int argc, char* argv[]) {
         //std::cout << "--pan pixel val is " << pan_pix << std::endl;
 
         // Add jitter to cameras
-        pan_dg_cam->m_coeffsx = coeffsx;
-        pan_dg_cam->m_coeffsy = coeffsy;
-        pan_dg_cam->m_coeffsz = coeffsz;
-        
-        ms_dg_cam->m_coeffsx = coeffsx;
-        ms_dg_cam->m_coeffsy = coeffsy;
-        ms_dg_cam->m_coeffsz = coeffsz;
+        if (opt.synthetic_jitter) {
+          pan_dg_cam->m_coeffsx = coeffsx;
+          pan_dg_cam->m_coeffsy = coeffsy;
+          pan_dg_cam->m_coeffsz = coeffsz;
+          
+          ms_dg_cam->m_coeffsx = coeffsx;
+          ms_dg_cam->m_coeffsy = coeffsy;
+          ms_dg_cam->m_coeffsz = coeffsz;
+        }
+
+        Vector2 tweaked_pix;
+        if (opt.synthetic_jitter) {
+          tweaked_pix = pan_pix;
+        }else{
+          // Get it from disparity
+          PixelMask<Vector2f> disp_val = interp_disp(pan_pix.x(), pan_pix.y());
+          if (!is_valid(disp_val)) 
+            continue;
+          tweaked_pix = pan_pix + disp_val.child();
+        }
         
         // Project from the PAN camera into the ground
         bool   has_intersection     = false;
@@ -331,8 +358,8 @@ int main(int argc, char* argv[]) {
         double max_rel_tol          = 1e-14;
         int    num_max_iter         = 100;
         Vector3 xyz_guess           = Vector3();
-        Vector3 camera_ctr          = pan_dg_cam->camera_center(pan_pix); 
-        Vector3 camera_vec          = pan_dg_cam->pixel_to_vector(pan_pix);
+        Vector3 camera_ctr          = pan_dg_cam->camera_center(tweaked_pix); 
+        Vector3 camera_vec          = pan_dg_cam->pixel_to_vector(tweaked_pix);
          
         // Use iterative solver call to compute an intersection of the pixel with the DEM	
         Vector3 xyz
@@ -382,42 +409,8 @@ int main(int argc, char* argv[]) {
         if (!has_intersection)
           continue;
 
-//         std::cout << "--xyz diff " << xyz - xyz2 << ' ' << norm_2(xyz - xyz2) << std::endl;
-        
         Vector2 pan_pix2 = pan_dg_cam->point_to_pixel(xyz2);
 
-//         {
-//           bool least_squares = false;
-//           double min_triangulation_angle = 1e-8;
-//           Vector3 err;
-//           vw::stereo::StereoModel sm(pan_dg_cam, ms_dg_cam, least_squares,
-//                                      min_triangulation_angle*M_PI/180.0);
-//           Vector3 xyz3 = sm(pan_pix, ms_pix, err);
-
-//           // Why is this biased in x???
-//           Vector2 pan_pix3 = pan_dg_cam->point_to_pixel(xyz3);
-//           Vector2 ms_pix3 = ms_dg_cam->point_to_pixel(xyz3);
-
-//           //std::cout << std::endl;
-          
-//           //std::cout << "--pan 3 diff " << pan_pix3 << ' ' << pan_pix3 - pan_pix << std::endl;
-//           //std::cout << "--ms 3 diff " << ms_pix3 << ' ' << ms_pix3 - ms_pix << std::endl;
-          
-//            dispx3(samp_col, samp_row) = pan_pix3.x() - pan_pix.x();
-//            dispy3(samp_col, samp_row) = pan_pix3.y() - pan_pix.y();
-
-//            Vector2 pan_pix4 = pan_dg_cam->point_to_pixel(xyz);
-//            Vector2 ms_pix4 = ms_dg_cam->point_to_pixel(xyz);
-           
-//            dispx4(samp_col, samp_row) = pan_pix4.x() - pan_pix.x();
-//            dispy4(samp_col, samp_row) = pan_pix4.y() - pan_pix.y();
-
-//            //std::cout << "--pan 4 diff " << pan_pix4 << ' ' << pan_pix4 - pan_pix << std::endl;
-//            //std::cout << "--ms 4 diff " << ms_pix4 << ' ' << ms_pix4 - ms_pix << std::endl;
-
-//            //std::cout << std::endl;
-//         }
-        
         // The disparity from PAN to MS projected in the PAN plane
         dispx(samp_col, samp_row) = pan_pix2.x() - pan_pix.x();
         dispy(samp_col, samp_row) = pan_pix2.y() - pan_pix.y();
@@ -438,19 +431,8 @@ int main(int argc, char* argv[]) {
         vals.push_back(xyz2.y());
         vals.push_back(xyz2.z());
         xyz_list.push_back(vals);
-        
-//         std::cout << "-2pan pix " << pan_pix << ' ' << pan_pix2 << ' ' << pan_pix - pan_pix2
-//                   << std::endl;
-
-        //std::cout << std::endl;
       }
     }
-
-//     std::string disp_x3_file = opt.out_prefix + "disp_x3.tif";
-//     std::string disp_y3_file = "disp_y3.tif";
-
-//     std::string disp_x4_file = "disp_x4.tif";
-//     std::string disp_y4_file = "disp_y4.tif";
 
     std::string disp_x_file = opt.out_prefix + "-disp_x.tif";
     std::string disp_y_file = opt.out_prefix + "-disp_y.tif";
@@ -465,16 +447,7 @@ int main(int argc, char* argv[]) {
     block_write_gdal_image(disp_x_file, dispx, has_georef, georef, has_nodata, nodata, opt, tpc);
     block_write_gdal_image(disp_y_file, dispy, has_georef, georef, has_nodata, nodata, opt, tpc);
 
-//     std::cout << "Writing " << disp_x3_file << ' ' << disp_y3_file << std::endl;
-//     block_write_gdal_image(disp_x3_file, dispx3, has_georef, georef, has_nodata, nodata, opt, tpc);
-//     block_write_gdal_image(disp_y3_file, dispy3, has_georef, georef, has_nodata, nodata, opt, tpc);
-
-//     std::cout << "Writing " << disp_x4_file << ' ' << disp_y4_file << std::endl;
-//     block_write_gdal_image(disp_x4_file, dispx4, has_georef, georef, has_nodata, nodata, opt, tpc);
-//     block_write_gdal_image(disp_y4_file, dispy4, has_georef, georef, has_nodata, nodata, opt, tpc);
-
-    std::string match_file = vw::ip::match_filename(opt.out_prefix, opt.pan_image,
-                                                    opt.proc_ms_image);
+    std::string match_file = vw::ip::match_filename(opt.out_prefix, opt.pan_image, opt.ms_image);
     std::cout << "Writing: " << match_file << std::endl;
     ip::write_binary_match_file(match_file, left_ip, right_ip);
 

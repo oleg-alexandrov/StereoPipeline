@@ -287,8 +287,8 @@ namespace asp {
       m_coeffsx(coeffsx), m_coeffsy(coeffsy), m_coeffsz(coeffsz) {
       m_mean_surface_elevation = mean_ground_elevation; // Set base class value
 
-      std::cout << "---correct_velocity = " << correct_velocity << std::endl;
-      std::cout << "--correct atmosphere = " << correct_atmosphere << std::endl;
+//       std::cout << "---correct_velocity = " << correct_velocity << std::endl;
+//       std::cout << "--correct atmosphere = " << correct_atmosphere << std::endl;
       
     } 
     virtual ~LinescanDGModel() {}
@@ -423,8 +423,6 @@ vw::Vector3 LinescanDGModel<PositionFuncT, PoseFuncT>
                         m_focal_length);
   return normalize(local_vec);
 }
-
-
 
 // Here we use an initial guess for the line number
 template <class PositionFuncT, class PoseFuncT>
@@ -656,7 +654,7 @@ boost::shared_ptr<DGCameraModel> load_dg_camera_model_from_xml(std::string const
   geo.principal_distance /= geo.detector_pixel_pitch;
   geo.detector_origin    /= geo.detector_pixel_pitch;
 
-  std::cout << "--det origin in pixels " << geo.detector_origin << std::endl;
+//   std::cout << "--det origin in pixels " << geo.detector_origin << std::endl;
   
   // Convert all time measurements to something that boost::date_time can read.
   boost::replace_all( eph.start_time,            "T", " " );
@@ -687,7 +685,7 @@ boost::shared_ptr<DGCameraModel> load_dg_camera_model_from_xml(std::string const
   }
 
   // this must be independent on the observation
-  vw::vw_out() << "DG model load: sensor_coordinate = " << sensor_coordinate << std::endl;
+  // vw::vw_out() << "DG model load: sensor_coordinate = " << sensor_coordinate << std::endl;
 
   // Also eph and att must also be independent of the observation
   
@@ -728,25 +726,25 @@ boost::shared_ptr<DGCameraModel> load_dg_camera_model_from_xml(std::string const
 							      0)), 0, 2);
 
   // This must be independent of the observation
-  std::cout << "--final det origin is " << final_detector_origin << std::endl;
+//   std::cout << "--final det origin is " << final_detector_origin << std::endl;
 
-  std::cout << "--geo principal distance: " << geo.principal_distance << std::endl;
+//   std::cout << "--geo principal distance: " << geo.principal_distance << std::endl;
   
   double et0 = convert( parse_time( eph.start_time ) );
   double at0 = convert( parse_time( att.start_time ) );
   double edt = eph.time_interval;
   double adt = att.time_interval;
 
-  std::cout << "--xx27 eph " << eph.position_vec[0] << ' ' << eph.velocity_vec[0] << ' '
-            << et0 << ' ' << edt << std::endl;
+//   std::cout << "--xx27 eph " << eph.position_vec[0] << ' ' << eph.velocity_vec[0] << ' '
+//             << et0 << ' ' << edt << std::endl;
 
-  std::cout << "--att " << att.quat_vec[0] << ' ' << at0 << ' ' << adt << std::endl;
+//   std::cout << "--att " << att.quat_vec[0] << ' ' << at0 << ' ' << adt << std::endl;
 
-  std::cout << "--geo principal distance " << geo.principal_distance << std::endl;
+//   std::cout << "--geo principal distance " << geo.principal_distance << std::endl;
 
-  std::cout << "--mean ground elevation " << mean_ground_elevation << std::endl;
+//   std::cout << "--mean ground elevation " << mean_ground_elevation << std::endl;
 
-  std::cout << "--image size " << img.image_size << std::endl;
+//   std::cout << "--image size " << img.image_size << std::endl;
   
   // This is where we could set the Earth radius if we have that info.
 
@@ -774,9 +772,10 @@ class LinescanModelFreq: public vw::camera::CameraModel {
 public:
   DGCameraModel * m_cam;
   std::vector<double> m_coeffsx, m_coeffsy, m_coeffsz; // Fourier coefficients
+  double m_ms_offset;
   
 public:
-  LinescanModelFreq(DGCameraModel * cam): m_cam(cam) {}
+  LinescanModelFreq(DGCameraModel * cam): m_cam(cam), m_ms_offset(0) {}
   
   virtual ~LinescanModelFreq() {}
   virtual std::string type() const { return "LinescanModelFreq"; }
@@ -788,9 +787,16 @@ public:
                                m_coeffsx, m_coeffsy, m_coeffsz);
   }
   
+  vw::Vector3 get_local_pixel_vector(vw::Vector2 const& pix) const {
+    vw::Vector3 local_vec(pix[0] + m_cam->m_detector_origin[0],
+                          m_cam->m_detector_origin[1] + m_ms_offset,
+                          m_cam->m_focal_length);
+    return normalize(local_vec);
+  }
+  
   /// Gives the camera position in world coordinates.
   virtual vw::Vector3 camera_center(vw::Vector2 const& pix) const {
-    return m_cam->camera_center(pix);
+    return m_cam->get_camera_center_at_time(this->get_time_at_line(pix.y()));
   }
 
   /// Gives a pose vector which represents the rotation from camera to world units
@@ -799,7 +805,7 @@ public:
       vw_throw(vw::camera::PixelToRayErr() << "Cannot have both the unadjusted and "
                << "adjusted cameras have frequency modulation");
     }
-    return get_camera_pose_at_time(get_time_at_line(pix.y()));
+    return this->get_camera_pose_at_time(this->get_time_at_line(pix.y()));
   }
   
   /// Returns the image size in pixels
@@ -810,7 +816,7 @@ public:
   
   /// Gives the camera velocity in world coordinates.
   vw::Vector3 camera_velocity(vw::Vector2 const& pix) const {
-    return m_cam->camera_velocity(pix);
+    return this->get_camera_velocity_at_time(this->get_time_at_line(pix.y()));
   }
   
   /// Gives the camera center at a time.
@@ -829,8 +835,8 @@ public:
   }
 
   /// Return the computed time for a given line.
-  virtual double  get_time_at_line(double line) const {
-    return m_cam->get_time_at_line(line);
+  virtual double get_time_at_line(double line) const {
+    return m_cam->m_time_func(line - m_ms_offset);
   }
 
   class LinescanFreqLMA : public vw::math::LeastSquaresModelBase<LinescanFreqLMA> {
@@ -863,7 +869,7 @@ public:
   vw::Vector2 point_to_pixel_uncorrected(vw::Vector3 const& point, double starty) const {
     
     // Solve for the correct line number to use
-    LinescanFreqLMA model(this, point, m_cam->m_ms_offset);
+    LinescanFreqLMA model(this, point, m_ms_offset);
     int status;
     vw::Vector<double> objective(1), start(1);
     start[0] = m_cam->m_image_size.y()/2; 
@@ -896,7 +902,7 @@ public:
   virtual vw::Vector2 point_to_pixel(vw::Vector3 const& point, double starty) const {
     
     // Use the uncorrected function to get a fast but good starting seed.
-    vw::camera::CameraGenericLMA model( this, point );
+    vw::camera::CameraGenericLMA model(this, point);
     int status;
     vw::Vector2 start = point_to_pixel_uncorrected(point, starty);
     
@@ -922,13 +928,13 @@ public:
     try {
       // Compute local vector from the pixel out of the sensor
       // - m_detector_origin and m_focal_length have been converted into units of pixels
-      vw::Vector3 local_vec = m_cam->get_local_pixel_vector(pixel);
+      vw::Vector3 local_vec = this->get_local_pixel_vector(pixel);
       // Put the local vector in world coordinates using the pose information.
       double       t        = this->get_time_at_line(pixel.y());
       vw::Quat     pose     = this->get_camera_pose_at_time(t); // camera to world
       vw::Vector3 output_vector = pose.rotate(local_vec);
       
-      vw::Vector3 cam_ctr = camera_center(pixel);
+      vw::Vector3 cam_ctr = this->camera_center(pixel);
       if (!m_cam->m_correct_atmospheric_refraction) 
         output_vector
           = vw::camera::apply_atmospheric_refraction_correction(cam_ctr,
@@ -939,7 +945,8 @@ public:
       if (!m_cam->m_correct_velocity_aberration) 
         return output_vector;
       else
-        return vw::camera::apply_velocity_aberration_correction(cam_ctr, camera_velocity(pixel),
+        return vw::camera::apply_velocity_aberration_correction(cam_ctr,
+                                                                this->camera_velocity(pixel),
                                                                 m_cam->m_mean_earth_radius,
                                                                 output_vector);
       
