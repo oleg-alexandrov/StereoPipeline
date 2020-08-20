@@ -220,3 +220,7 @@ install(TARGETS jitter_solve DESTINATION bin)
 add_executable(disp_model disp_model.cc) 
 target_link_libraries(disp_model AspSessions ${SOLVER_LIBRARIES})
 install(TARGETS disp_model DESTINATION bin)
+
+add_executable(disp_avg2 disp_avg2.cc) 
+target_link_libraries(disp_avg2 AspSessions ${SOLVER_LIBRARIES})
+install(TARGETS disp_avg2 DESTINATION bin)

@@ -639,9 +639,19 @@ boost::shared_ptr<DGCameraModel> load_dg_camera_model_from_xml(std::string const
   std::cout << "--ms offset is " << ms_offset << std::endl;
 
   std::vector<double> coeffsx, coeffsy, coeffsz;
-  parse_coeffs(coeffsx, "ADJX", band_id);
-  parse_coeffs(coeffsy, "ADJY", band_id);
-  parse_coeffs(coeffsz, "ADJZ", band_id);
+  if (band_id == "LeftAdj") {
+    parse_coeffs(coeffsx, "LEFT_ADJX", band_id);
+    parse_coeffs(coeffsy, "LEFT_ADJY", band_id);
+    parse_coeffs(coeffsz, "LEFT_ADJZ", band_id);
+  }else if (band_id == "RightAdj") {
+    parse_coeffs(coeffsx, "RIGHT_ADJX", band_id);
+    parse_coeffs(coeffsy, "RIGHT_ADJY", band_id);
+    parse_coeffs(coeffsz, "RIGHT_ADJZ", band_id);
+  } else{
+    parse_coeffs(coeffsx, "ADJX", band_id);
+    parse_coeffs(coeffsy, "ADJY", band_id);
+    parse_coeffs(coeffsz, "ADJZ", band_id);
+  }
   
   // Get an estimate of the surface elevation from the corners specified in the file.
   // - Not every file has this information, in which case we will just use zero.

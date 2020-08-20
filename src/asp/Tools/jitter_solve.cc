@@ -498,9 +498,9 @@ void handle_arguments(int argc, char *argv[], Options& opt) {
     vw::vw_throw( vw::ArgumentErr() << "Expecting a positive number of frequencies.\n\n"
                   << usage << general_options );
 
-  if (opt.ms_offset <= 0) 
-    vw::vw_throw( vw::ArgumentErr() << "Expecting a positive MS offset.\n\n"
-                  << usage << general_options );
+//   if (opt.ms_offset <= 0) 
+//     vw::vw_throw( vw::ArgumentErr() << "Expecting a positive MS offset.\n\n"
+//                   << usage << general_options );
 
   // NOTE(oalexan1): The reason min_triangulation_angle cannot be 0 is deep inside
   // StereoModel.cc. Better keep it this way than make too many changes there.
@@ -934,7 +934,32 @@ int main(int argc, char* argv[]) {
     std::cout << coeffsz.back() << "'\n";
 
     std::cout << "export MS_OFFSET=" << ms_offset << std::endl;
-    
+
+    // Save coeffs to disk
+    std::string jx = opt.out_prefix + "-adjx.txt";
+    std::cout << "Writing: " << jx << std::endl;
+    std::ofstream ox(jx.c_str());
+    ox.precision(18);
+    for (int it = 0; it < int(coeffsx.size()) - 1; it++)
+      ox << coeffsx[it] << " ";
+    ox << coeffsx.back() << "\n";
+
+    std::string jy = opt.out_prefix + "-adjy.txt";
+    std::cout << "Writing: " << jy << std::endl;
+    std::ofstream oy(jy.c_str());
+    oy.precision(18);
+    for (int it = 0; it < int(coeffsy.size()) - 1; it++)
+      oy << coeffsy[it] << " ";
+    oy << coeffsy.back() << "\n";
+
+    std::string jz = opt.out_prefix + "-adjz.txt";
+    std::cout << "Writing: " << jz << std::endl;
+    std::ofstream oz(jz.c_str());
+    oz.precision(18);
+    for (int it = 0; it < int(coeffsz.size()) - 1; it++)
+      oz << coeffsz[it] << " ";
+    oz << coeffsz.back() << "\n";
+
     sw.stop();
     vw::vw_out() << "Jitter solve elapsed time: " << sw.elapsed_seconds() << std::endl;
     
