@@ -57,16 +57,12 @@ namespace camera {
 
   inline vw::Quat get_adj(double s, std::vector<double> const& coeffs, int mode) {
 
-    //std::cout << "--size is " << coeffs.size() << std::endl;
     double angle = coeffs[0];
-    //std::cout << "--fist coeff is " << coeffs[0] << std::endl;
     for (int it = 0; it < (coeffs.size() - 1)/2; it++) {
-      //std::cout << "--it is " << it << std::endl;
       
       double cos_coeff = coeffs[ 2 * it + 1];
       double sin_coeff = coeffs[ 2 * it + 2];
       
-      //std::cout << "---coeff " << cos_coeff << ' ' << sin_coeff << std::endl;
       
       angle += cos_coeff * cos(s * (it + 1.0)) + sin_coeff * sin(s * (it + 1.0));
     }
@@ -86,8 +82,6 @@ namespace camera {
       M(1, 0) = sin(angle); M(1, 1) =  cos(angle);
     }
     
-    //std::cout << "M = " << M << std::endl;
-    
     return vw::Quat(M);
   }
   
@@ -105,9 +99,6 @@ namespace camera {
       vw::vw_throw( vw::ArgumentErr() << "Must have same number of coeffs in x, y, and z.\n");
     }
 
-    //std::cout << "t is " << t << std::endl;
-    //std::cout << "--tb and te are " << tb << ' ' << te << std::endl;
-    
     // Normalize the value to [0, pi]. It may still go a little beyond it, depending on t.
     double s = M_PI * (t - tb)/(te - tb);
     
@@ -128,11 +119,6 @@ namespace camera {
       m_correct_velocity_aberration(correct_velocity_aberration),
       m_correct_atmospheric_refraction(correct_atmospheric_refraction),
       m_ms_offset(ms_offset) {
-//       std::cout << "--correct velocity aberration is " << m_correct_velocity_aberration
-//                 << std::endl;
-//       std::cout << "--correct atmospheric refraction " << m_correct_atmospheric_refraction
-//                 << std::endl;
-//       std::cout << "m_ms_offset " << m_ms_offset << std::endl;
       
       // Set default values for these constants which can be overridden later on.
       const double DEFAULT_EARTH_RADIUS      = 6371000.0;  // In meters.
@@ -286,10 +272,6 @@ namespace asp {
       m_focal_length(focal_length),
       m_coeffsx(coeffsx), m_coeffsy(coeffsy), m_coeffsz(coeffsz) {
       m_mean_surface_elevation = mean_ground_elevation; // Set base class value
-
-//       std::cout << "---correct_velocity = " << correct_velocity << std::endl;
-//       std::cout << "--correct atmosphere = " << correct_atmosphere << std::endl;
-      
     } 
     virtual ~LinescanDGModel() {}
     virtual std::string type() const { return "LinescanDG"; }
@@ -586,7 +568,7 @@ inline void parse_coeffs(std::vector<double> & coeffs, std::string const& var,
     }
     std::cout << std::endl;
   }
-  std::cout << "size of coeffs for " << var << " = " << coeffs.size() << std::endl;
+  std::cout << "Size of coeffs for " << var << " = " << coeffs.size() << std::endl;
 }
   
 boost::shared_ptr<DGCameraModel> load_dg_camera_model_from_xml(std::string const& path){
@@ -635,8 +617,8 @@ boost::shared_ptr<DGCameraModel> load_dg_camera_model_from_xml(std::string const
     ms_offset = atof(ptr);
   }
   
-  std::cout << "--band id is " << band_id << std::endl;
-  std::cout << "--ms offset is " << ms_offset << std::endl;
+  std::cout << "Band id is " << band_id << std::endl;
+  std::cout << "MS offset is " << ms_offset << std::endl;
 
   std::vector<double> coeffsx, coeffsy, coeffsz;
   if (band_id == "LeftAdj") {
@@ -664,8 +646,6 @@ boost::shared_ptr<DGCameraModel> load_dg_camera_model_from_xml(std::string const
   geo.principal_distance /= geo.detector_pixel_pitch;
   geo.detector_origin    /= geo.detector_pixel_pitch;
 
-//   std::cout << "--det origin in pixels " << geo.detector_origin << std::endl;
-  
   // Convert all time measurements to something that boost::date_time can read.
   boost::replace_all( eph.start_time,            "T", " " );
   boost::replace_all( img.tlc_start_time,        "T", " " );
@@ -736,26 +716,11 @@ boost::shared_ptr<DGCameraModel> load_dg_camera_model_from_xml(std::string const
 							      0)), 0, 2);
 
   // This must be independent of the observation
-//   std::cout << "--final det origin is " << final_detector_origin << std::endl;
-
-//   std::cout << "--geo principal distance: " << geo.principal_distance << std::endl;
-  
   double et0 = convert( parse_time( eph.start_time ) );
   double at0 = convert( parse_time( att.start_time ) );
   double edt = eph.time_interval;
   double adt = att.time_interval;
 
-//   std::cout << "--xx27 eph " << eph.position_vec[0] << ' ' << eph.velocity_vec[0] << ' '
-//             << et0 << ' ' << edt << std::endl;
-
-//   std::cout << "--att " << att.quat_vec[0] << ' ' << at0 << ' ' << adt << std::endl;
-
-//   std::cout << "--geo principal distance " << geo.principal_distance << std::endl;
-
-//   std::cout << "--mean ground elevation " << mean_ground_elevation << std::endl;
-
-//   std::cout << "--image size " << img.image_size << std::endl;
-  
   // This is where we could set the Earth radius if we have that info.
 
   typedef boost::shared_ptr<DGCameraModel> CameraModelPtr;
