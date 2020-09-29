@@ -217,6 +217,14 @@ add_executable(jitter_solve jitter_solve.cc)
 target_link_libraries(jitter_solve AspSessions ${SOLVER_LIBRARIES})
 install(TARGETS jitter_solve DESTINATION bin)
 
+add_executable(ccd_solve ccd_solve.cc) 
+target_link_libraries(ccd_solve AspSessions ${SOLVER_LIBRARIES})
+install(TARGETS ccd_solve DESTINATION bin)
+
+add_executable(jitter_solve2 jitter_solve2.cc) 
+target_link_libraries(jitter_solve2 AspSessions ${SOLVER_LIBRARIES})
+install(TARGETS jitter_solve2 DESTINATION bin)
+
 add_executable(disp_model disp_model.cc) 
 target_link_libraries(disp_model AspSessions ${SOLVER_LIBRARIES})
 install(TARGETS disp_model DESTINATION bin)
@@ -224,3 +232,7 @@ install(TARGETS disp_model DESTINATION bin)
 add_executable(disp_avg2 disp_avg2.cc) 
 target_link_libraries(disp_avg2 AspSessions ${SOLVER_LIBRARIES})
 install(TARGETS disp_avg2 DESTINATION bin)
+
+add_executable(find_bounds find_bounds.cc) 
+target_link_libraries(find_bounds AspSessions ${SOLVER_LIBRARIES})
+install(TARGETS find_bounds DESTINATION bin)

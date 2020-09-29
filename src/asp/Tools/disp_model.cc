@@ -149,11 +149,6 @@ bool raw_to_proc_ms_pix(Vector2 const& ms_pix,
   if (!has_intersection)
     return false;
 
-  // std::cout << "-xyz is " << xyz << std::endl;
-  // Vector2 ms_pix = m_ms_cam->point_to_pixel(xyz);
-  // std::cout << "--ms pix " << pix << ' ' << ms_pix << ' ' << norm_2(pix - ms_pix)
-  // << std::endl;
-          
   pan_pix = pan_cam->point_to_pixel(xyz);
   
   return true;
@@ -202,6 +197,8 @@ bool proc_ms_to_raw_ms_pix(Vector2 const& proc_ms_pix,
 typedef boost::scoped_ptr<asp::StereoSession> SessionPtr;
 
 int main(int argc, char* argv[]) {
+
+  vw::cartography::Datum datum("WGS84");
   
   Options opt;
   try {
@@ -209,9 +206,6 @@ int main(int argc, char* argv[]) {
 
     handle_arguments(argc, argv, opt);
 
-    
-    //std::cout << "image and camera: " << opt.pan_image << ' ' << opt.pan_camera << std::endl;
-    
     // Initialize the session
     std::string session_str = "dg";
     std::string out_prefix = "out";
@@ -376,10 +370,10 @@ int main(int argc, char* argv[]) {
         double max_rel_tol          = 1e-14;
         int    num_max_iter         = 100;
         Vector3 xyz_guess           = Vector3();
-        Vector3 camera_ctr          = pan_dg_cam->camera_center(tweaked_pix); 
-        Vector3 camera_vec          = pan_dg_cam->pixel_to_vector(tweaked_pix);
          
         // Use iterative solver call to compute an intersection of the pixel with the DEM	
+        Vector3 camera_ctr          = pan_dg_cam->camera_center(tweaked_pix); 
+        Vector3 camera_vec          = pan_dg_cam->pixel_to_vector(tweaked_pix);
         Vector3 xyz
           = vw::cartography::camera_pixel_to_dem_xyz(camera_ctr, camera_vec,
                                                      dem, dem_georef,
@@ -473,10 +467,10 @@ int main(int argc, char* argv[]) {
         ms_dg_cam->m_coeffsy = std::vector<double>();
         ms_dg_cam->m_coeffsz = std::vector<double>();
         
-        camera_ctr = ms_dg_cam->camera_center(ms_pix); 
-        camera_vec = ms_dg_cam->pixel_to_vector(ms_pix);
          
         // Use iterative solver call to compute an intersection of the pixel with the DEM	
+        camera_ctr = ms_dg_cam->camera_center(ms_pix); 
+        camera_vec = ms_dg_cam->pixel_to_vector(ms_pix);
         Vector3 xyz2
           = vw::cartography::camera_pixel_to_dem_xyz(camera_ctr, camera_vec,
                                                      dem, dem_georef,
@@ -488,8 +482,32 @@ int main(int argc, char* argv[]) {
         // Quit if we did not find an intersection
         if (!has_intersection)
           continue;
+#if 0
+        // Average xyz2 which came from the ms pix with the xyz3
+        // coming from the pan pix
+        camera_ctr = ms_dg_cam->camera_center(pan_pix); 
+        camera_vec = ms_dg_cam->pixel_to_vector(pan_pix);
+        Vector3 xyz3
+          = vw::cartography::camera_pixel_to_dem_xyz(camera_ctr, camera_vec,
+                                                     dem, dem_georef,
+                                                     treat_nodata_as_zero,
+                                                     has_intersection,
+                                                     height_error_tol, max_abs_tol, max_rel_tol,
+                                                     num_max_iter, xyz_guess);
+#endif
+        
+        if (!has_intersection)
+          continue;
 
-        // std::cout << "--xyz diff " << norm_2(xyz - xyz2) << std::endl;
+        //Vector3 xyz_avg = (xyz2 + xyz3)/2.0;
+
+//         std::cout << "xyz0 diff " << norm_2(xyz2 - xyz) << ' ' << xyz2 - xyz << std::endl;
+//         // std::cout << "--xyz diff " << norm_2(xyz - xyz2) << std::endl;
+
+//         Vector3 llh2 = datum.cartesian_to_geodetic(xyz2);
+//         Vector3 llh3 = datum.cartesian_to_geodetic(xyz3);
+
+//         std::cout << "llh diff " << llh2-llh3  << std::endl;
         
         Vector2 pan_pix2 = pan_dg_cam->point_to_pixel(xyz2);
 
@@ -508,11 +526,12 @@ int main(int argc, char* argv[]) {
         vals.push_back(pan_pix.x());
         vals.push_back(pan_pix.y());
 
-        // Note how we use xyz2.
+        // Note how we use xyz_avg.
         // TODO(oalexan1): Need to get xyz3 as the projection
         // from the PAN pixel, and average that one with xyz2.
 
         // TODO(oalexan1): See the difference between xyz3 and xyz2!
+        
         vals.push_back(xyz2.x());
         vals.push_back(xyz2.y());
         vals.push_back(xyz2.z());
@@ -539,15 +558,18 @@ int main(int argc, char* argv[]) {
     std::cout << "Writing: " << match_file << std::endl;
     ip::write_binary_match_file(match_file, left_ip, right_ip);
 
-    std::string xyz_file = match_file + ".xyz";
-    std::cout << "Writing: " << xyz_file << std::endl;
-    std::ofstream ofs (xyz_file.c_str());
-    ofs.precision(18);
-    for (size_t row = 0; row < xyz_list.size(); row++) {
-      for (size_t col = 0; col < xyz_list[row].size(); col++) {
-        ofs << xyz_list[row][col] << ' ';
+    // These intersections don't make sense for synthetic jitter
+    if (!opt.synthetic_jitter) {
+      std::string xyz_file = match_file + ".xyz";
+      std::cout << "Writing: " << xyz_file << std::endl;
+      std::ofstream ofs (xyz_file.c_str());
+      ofs.precision(18);
+      for (size_t row = 0; row < xyz_list.size(); row++) {
+        for (size_t col = 0; col < xyz_list[row].size(); col++) {
+          ofs << xyz_list[row][col] << ' ';
+        }
+        ofs << "\n";
       }
-      ofs << "\n";
     }
     
     xercesc::XMLPlatformUtils::Terminate();
