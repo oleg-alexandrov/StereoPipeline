@@ -15,9 +15,8 @@ Misc
    This is a bug fix for this rarely used option (before, when set to
    0 it would just reset itself to some internal non-small value).  
 
-parallel_stereo
-   * Will now throw an error if --threads is passed in, whose behavior
-     was not defined.
+RELEASE 2.7.0, July 27, 2020
+----------------------------
 
 New functionality
    * Support for ISIS version 4.1.10. Please set ISISDATA instead of
