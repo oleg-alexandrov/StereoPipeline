@@ -536,17 +536,37 @@ shared_preprocessing_hook(vw::cartography::GdalWriteOptions & options,
     has_left_georef = read_georeference(left_georef, left_input_file);
     bool has_nodata = true;
 
-    DiskImageView<float> left_orig_image(left_input_file);
     BBox2i left_win = stereo_settings().left_image_crop_win;
-    left_win.crop (bounding_box(left_orig_image));
-
-    vw_out() << "\t--> Writing cropped image: " << left_cropped_file << "\n";
-    block_write_gdal_image(left_cropped_file,
-                           crop(left_orig_image, left_win),
-                           has_left_georef, crop(left_georef, left_win),
-                           has_nodata, left_nodata_value,
-                           options,
-                           TerminalProgressCallback("asp", "\t:  "));
+    char * lcrop = getenv("LCROP");
+    if (lcrop == NULL || strlen(lcrop) == 0) {
+      DiskImageView<float> left_orig_image(left_input_file);
+      left_win.crop (bounding_box(left_orig_image));
+      
+      vw_out() << "\t--> Writing cropped image: " << left_cropped_file << "\n";
+      block_write_gdal_image(left_cropped_file,
+                             crop(left_orig_image, left_win),
+                             has_left_georef, crop(left_georef, left_win),
+                             has_nodata, left_nodata_value,
+                             options,
+                             TerminalProgressCallback("asp", "\t:  "));
+    }else{
+      std::cout << "---using this LCROP " << lcrop << std::endl;
+      DiskImageView<float> left_orig_image(lcrop);
+      //std::cout << "width is " << left_orig_image.cols() << ' ' << left_win.width() << std::endl;
+      if (left_orig_image.cols() != left_win.width() ||
+          left_orig_image.rows() != left_win.height()) {
+        std::cout << "--bookkeeping failure on left image" << std::endl;
+        exit(1);
+      }
+      vw_out() << "\t--> Writing cropped image2: " << left_cropped_file << "\n";
+      block_write_gdal_image(left_cropped_file,
+                             left_orig_image,
+                             has_left_georef, crop(left_georef, left_win),
+                             has_nodata, left_nodata_value,
+                             options,
+                             TerminalProgressCallback("asp", "\t:  "));
+      
+    }
   }
   if (crop_right) {
     // Crop the image, will use them from now on. Crop the georef as well, if available.
@@ -555,18 +575,38 @@ shared_preprocessing_hook(vw::cartography::GdalWriteOptions & options,
     has_right_georef = read_georeference(right_georef, right_input_file);
     bool has_nodata = true;
 
-    DiskImageView<float> right_orig_image(right_input_file);
     BBox2i right_win = stereo_settings().right_image_crop_win;
-    right_win.crop(bounding_box(right_orig_image));
-
-    vw_out() << "\t--> Writing cropped image: " << right_cropped_file << "\n";
-    block_write_gdal_image(right_cropped_file,
-                           crop(right_orig_image, right_win),
-                           has_right_georef,
-                           crop(right_georef, right_win),
-                           has_nodata, right_nodata_value,
-                           options,
-                           TerminalProgressCallback("asp", "\t:  "));
+    char * rcrop = getenv("RCROP");
+    if (rcrop == NULL || strlen(rcrop) == 0) {
+      DiskImageView<float> right_orig_image(right_input_file);
+      right_win.crop(bounding_box(right_orig_image));
+      
+      vw_out() << "\t--> Writing cropped image: " << right_cropped_file << "\n";
+      block_write_gdal_image(right_cropped_file,
+                             crop(right_orig_image, right_win),
+                             has_right_georef,
+                             crop(right_georef, right_win),
+                             has_nodata, right_nodata_value,
+                             options,
+                             TerminalProgressCallback("asp", "\t:  "));
+    }else{
+      std::cout << "---using this RCROP " << rcrop << std::endl;
+      DiskImageView<float> right_orig_image(rcrop);
+      //std::cout << "width is " << right_orig_image.cols() << ' ' << right_win.width() << std::endl;
+      if (right_orig_image.cols() != right_win.width() ||
+          right_orig_image.rows() != right_win.height()) {
+        std::cout << "--bookkeeping failure on right image" << std::endl;
+        exit(1);
+      }
+      vw_out() << "\t--> Writing cropped image2: " << right_cropped_file << "\n";
+      block_write_gdal_image(right_cropped_file,
+                             right_orig_image,
+                             has_right_georef,
+                             crop(right_georef, right_win),
+                             has_nodata, right_nodata_value,
+                             options,
+                             TerminalProgressCallback("asp", "\t:  "));
+    }
   }
 
 
