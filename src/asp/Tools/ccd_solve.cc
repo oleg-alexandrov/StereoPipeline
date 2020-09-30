@@ -50,6 +50,13 @@
 // the clips with the corrections applied to them (this way the
 // original images are overridden at the right time in the flow).
 
+// In addition to using cropped images in stereo, or independently of
+// it, the disparities passed to ccd_solve can be further cropped to a
+// smaller area by invoking ccd_solve with the --crop-win option. Once
+// the corrections are found, with their number being the width of
+// this crop window, they are padded with zero to make their size
+// equal the width of the input disparities.
+
 // To find good regions to work on to start with, use the find_bounds
 // tool. It will take as input a DEM clip and will return the left and
 // right image crop wins corresponding to that clip.
@@ -180,7 +187,7 @@ private:
 }; // End class SmoothnessError
 
 struct Options : vw::cartography::GdalWriteOptions {
-  std::string disparities, out_prefix, left_crop_win, right_crop_win;
+  std::string disparities, out_prefix, crop_win;
   double disparity_threshold, offset_weight, smoothness_weight, max_offset;
   int num_iterations, sample_rate;
 };
@@ -196,10 +203,8 @@ void handle_arguments(int argc, char *argv[], Options& opt) {
      "A larger offset weight will keep the optimized offsets closer to 0.")
      ("smoothness-weight",  po::value(&opt.smoothness_weight)->default_value(10),
      "A larger smoothness weight will make the optimized offsets a smoother curve.")
-    ("left-crop-win",  po::value(&opt.left_crop_win),
+    ("crop-win",  po::value(&opt.crop_win),
      "Left crop window (minx miny widx widy).")
-    ("right-crop-win",  po::value(&opt.right_crop_win),
-     "Right crop window (minx miny widx widy).")
     ("num-iterations",       po::value(&opt.num_iterations)->default_value(5),
      "Set the maximum number of iterations.") 
     ("sample-rate",       po::value(&opt.sample_rate)->default_value(200),
@@ -251,16 +256,11 @@ int main(int argc, char* argv[]) {
     handle_arguments(argc, argv, opt);
 
     int minx = 0, miny = 0, widx = 0, widy = 0;
-    BBox2i left_crop_win, right_crop_win;
-    std::istringstream l_iss(opt.left_crop_win);
+    BBox2i crop_win;
+    std::istringstream l_iss(opt.crop_win);
     if (l_iss >> minx >> miny >> widx >> widy) {
-      left_crop_win.min() = Vector2(minx, miny);
-      left_crop_win.max() = Vector2(minx + widx, miny + widy);
-    }
-    std::istringstream r_iss(opt.right_crop_win);
-    if (r_iss >> minx >> miny >> widx >> widy) {
-      right_crop_win.min() = Vector2(minx, miny);
-      right_crop_win.max() = Vector2(minx + widx, miny + widy);
+      crop_win.min() = Vector2(minx, miny);
+      crop_win.max() = Vector2(minx + widx, miny + widy);
     }
 
     std::istringstream dss(opt.disparities);
@@ -270,7 +270,7 @@ int main(int argc, char* argv[]) {
     
     // TODO(oalexan1): Here we assume that the crop window is
     // fully contained in the image.
-    std::vector<double> x_offset(left_crop_win.width(), 0.0), y_offset(left_crop_win.width(), 0.0);
+    std::vector<double> x_offset(crop_win.width(), 0.0), y_offset(crop_win.width(), 0.0);
 
     // The ceres problem
     ceres::Problem problem;
@@ -295,20 +295,20 @@ int main(int argc, char* argv[]) {
                         << "All disparities must have the same number of columns.\n\n");
       }
       
-      left_crop_win.crop(bounding_box(full_disparity));
+      crop_win.crop(bounding_box(full_disparity));
 
       ImageViewRef< PixelMask<Vector2f> > disparity;
-      if (!left_crop_win.empty()) 
-        disparity = crop(full_disparity, left_crop_win);
+      if (!crop_win.empty()) 
+        disparity = crop(full_disparity, crop_win);
       else
         disparity = full_disparity;
 
-      if (left_crop_win.empty()) {
+      if (crop_win.empty()) {
         x_offset.resize(disparity.cols(), 0.0);
         y_offset.resize(disparity.cols(), 0.0);
       }
       
-      if (!left_crop_win.empty() && disparity.cols() != left_crop_win.width()) 
+      if (!crop_win.empty() && disparity.cols() != crop_win.width()) 
         vw::vw_throw( vw::ArgumentErr()
                       << "All cropped disparities must have the same number of columns.\n\n");
       
@@ -385,12 +385,12 @@ int main(int argc, char* argv[]) {
     double nan = std::numeric_limits<double>::quiet_NaN();
     std::vector<double> full_x(num_full_cols, nan);
     std::vector<double> full_y(num_full_cols, nan);
-    if (left_crop_win.empty()) {
+    if (crop_win.empty()) {
       full_x = x_offset;
       full_y = y_offset;
     } else {
-      int start = left_crop_win.min().x();
-      int width = left_crop_win.width();
+      int start = crop_win.min().x();
+      int width = crop_win.width();
       for (size_t col = 0; col < x_offset.size(); col++) {
         full_x[col + start] = std::min(std::max(x_offset[col], -opt.max_offset), opt.max_offset);
         full_y[col + start] = std::min(std::max(y_offset[col], -opt.max_offset), opt.max_offset);

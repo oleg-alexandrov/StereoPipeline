@@ -149,7 +149,6 @@ int main(int argc, char* argv[]) {
 
     BBox2i left_box, right_box;
     for (int col = 0; col < dem.cols(); col += 10) {
-      std::cout << "--col is " << col << std::endl;
       for (int row = 0; row < dem.rows(); row += 10) {
         PixelMask<float> val = dem(col, row);
         if (!is_valid(val))
