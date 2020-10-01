@@ -18,10 +18,17 @@
 /// \file ccd_solve.cc
 ///
 
-// A solver to find an x and y correction value for each column in an
-// image by minimizing the disparity discontinuity. This is analogous
-// to finding the per-column averaged disparity (the disp_avg tool),
-// but this solver approach is more robust to noise.
+// A solver to find an x and y CCD correction value for each column in
+// an image by minimizing the disparity discontinuity. Hence it is
+// assumed that two images in a stereo pair are given, with both
+// having the same artifacts (so the same satellite, TDI, scan
+// direction, and ideally also the same cross-track angle and
+// direction of travel, which is usually North to South).
+
+// The computation done by the solver is analogous to finding the
+// per-column averaged disparity (the disp_avg tool), but the solver
+// approach is more robust to noise as it uses Google CERES to
+// attenuate outliers.
 
 // Note that the disparity discontinuity is due to CCD artifacts in
 // both the left and the right images. This tool works best when it
@@ -39,30 +46,48 @@
 
 // The correction obtained from this tool can be applied with
 // wv_correct with the --dx and --dy options. So far only corrections
-// for WV03 TDI 32 and reverse scan direction have been computed. They
-// are saved in the src/asp/WVCorrect directory.
+// for WV03 TDI 32 and reverse scan direction have been
+// computed. These have been stored for reference in the
+// src/asp/WVCorrect directory.
 
 // To work only on some clips, the disparities can be found by
 // invoking stereo with the --left-image-crop-win and
-// --right-image-crop-win options.  Then, ccd_solve is used to find
-// the corrections, and those are applied on corresponding clips cut
-// out with gdal_translate.  Stereo can be told to use those corrected
-// clips by invoking it as above with --left-image-crop-win and
-// --right-image-crop-win and the original images, but setting in
+// --right-image-crop-win options (same window should be passed to
+// both, or at least the same left and right bounds to have correct
+// book-keeping). Then, ccd_solve is used to find the corrections, and
+// those are applied on corresponding clips cut out with
+// gdal_translate using wv_correct. Stereo can be told to use those
+// corrected clips by invoking it as above with --left-image-crop-win
+// and --right-image-crop-win and the original images, but setting in
 // addition the environmental variables LCROP and RCROP to point to
 // the clips with the corrections applied to them (this way the
 // original images are overridden at the right time in the flow).
+
+// This solver was used successfully for the full image width (while
+// using 12,000 rows from each of the left and right images) with
+// either 3 or 6 disparities (3 stereo pairs, with left-to-right and
+// right-to-left disparities for each). It fits in memory if one picks
+// 100 samples for each column for each of the six disparities, which
+// is enough to get a good result. It takes about 4 hours to run with
+// 5 iterations and uses 20 GB of RAM.
 
 // In addition to using cropped images in stereo, or independently of
 // it, the disparities passed to ccd_solve can be further cropped to a
 // smaller area by invoking ccd_solve with the --crop-win option. Once
 // the corrections are found, with their number being the width of
 // this crop window, they are padded with zero to make their size
-// equal the width of the input disparities.
+// equal the width of the input disparities. This is recommended
+// only for some sanity check experiments, normally one should
+// use the full image width or at least a clip of at least 15,000
+// columns, as the corrections for clips with smaller widths may
+// not be good enough.
 
-// To find good regions to work on to start with, use the find_bounds
-// tool. It will take as input a DEM clip and will return the left and
-// right image crop wins corresponding to that clip.
+// To find good regions to work on to start with, use the
+// find_bounds.cc tool. It will take as input a DEM clip and will
+// return the left and right image crop wins corresponding to that
+// clip. Those should be grown to have the same dimensions or at least
+// the same left and right bounds (the lower and upper bounds, so the
+// precise rows from each image, need not be the same).
 
 #include <asp/Core/BundleAdjustUtils.h>
 #include <asp/Core/InterestPointMatching.h>
