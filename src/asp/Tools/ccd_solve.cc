@@ -37,7 +37,10 @@
 
 // Usage: ccd_solve --disparities 'disp1-RD.tf ... dispN-RD.tif' -o run/run-solve
 
-// The correction obtained from this tool can be applied with wv_correct.
+// The correction obtained from this tool can be applied with
+// wv_correct with the --dx and --dy options. So far only corrections
+// for WV03 TDI 32 and reverse scan direction have been computed. They
+// are saved in the src/asp/WVCorrect directory.
 
 // To work only on some clips, the disparities can be found by
 // invoking stereo with the --left-image-crop-win and
