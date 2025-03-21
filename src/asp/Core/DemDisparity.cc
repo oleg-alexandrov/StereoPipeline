@@ -155,6 +155,7 @@ inline prerasterize_type prerasterize(BBox2i const& bbox) const {
     = prerasterize_type(ImageView<pixel_type>(bbox.width(), bbox.height()),
                         -bbox.min().x(), -bbox.min().y(), cols(), rows());
 
+  // TODO(oalexan1): This must be a function
   for (int row = bbox.min().y(); row < bbox.max().y(); row++) {
     for (int col = bbox.min().x(); col < bbox.max().x(); col++) {
       lowres_disparity(col, row) = PixelMask<Vector2f>();
@@ -213,27 +214,30 @@ inline prerasterize_type prerasterize(BBox2i const& bbox) const {
   // Estimate the DEM region we expect to use and crop it into an
   // ImageView. This will make the algorithm much faster than
   // accessing individual DEM pixels from disk.
+  // TODO(oalexan1): This must be a helper function
   BBox2i dem_box;
-  Vector3 prev_xyz; // for storing ray-to-dem intersection from the previous iteration
+  // For storing ray-to-dem intersection from the previous iteration
+  Vector3 prev_left_xyz, prev_right_xyz;
   for (unsigned k = 0; k < diagonals.size(); k++) {
 
     Vector2 left_lowres_pix = diagonals[k];
-    vw::Vector3 left_camera_vec, xyz;
+    vw::Vector3 left_camera_vec, left_xyz;
     bool success = lowResPixToDemXyz(left_lowres_pix, m_downsample_scale, local_tx_left, 
                                      m_left_camera_model, m_dem_error, m_dem_georef, 
                                      m_dem, m_height_guess, 
-                                     left_camera_vec, prev_xyz, xyz); // outputs
+                                     left_camera_vec, prev_left_xyz, left_xyz); // outputs
     
     if (!success) 
       continue;
 
-    Vector3 llh = m_dem_georef.datum().cartesian_to_geodetic(xyz);
+    Vector3 llh = m_dem_georef.datum().cartesian_to_geodetic(left_xyz);
     Vector2 pix = round(m_dem_georef.lonlat_to_pixel(subvector(llh, 0, 2)));
     dem_box.grow(pix);
   }
 
   // Expand the DEM box just in case as the above calculation is
   // not fool-proof if the DEM has a lot of no-data regions.
+  // TODO(oalexan1): This must be a helper function
   int expand = std::max(100, (int)(0.1*std::max(dem_box.width(), dem_box.height())));
   dem_box.expand(expand);
   dem_box.crop(bounding_box(m_dem));
@@ -249,7 +253,8 @@ inline prerasterize_type prerasterize(BBox2i const& bbox) const {
       continue;
 
     // Must wipe the previous guess since we are now too far from it
-    prev_xyz = Vector3();
+    prev_left_xyz = Vector3();
+    prev_right_xyz = Vector3();
 
     for (int col = bbox.min().x(); col < bbox.max().x(); col++) {
       if (col % m_pixel_sample != 0) 
@@ -257,23 +262,24 @@ inline prerasterize_type prerasterize(BBox2i const& bbox) const {
 
       Vector2 left_lowres_pix = Vector2(col, row);
       
-      vw::Vector3 left_camera_vec, xyz;
+      vw::Vector3 left_camera_vec, left_xyz;
       bool success = lowResPixToDemXyz(left_lowres_pix, m_downsample_scale, local_tx_left, 
                                        m_left_camera_model, m_dem_error, georef_crop, 
                                        dem_crop, m_height_guess, 
-                                       left_camera_vec, prev_xyz, xyz); // outputs
+                                       left_camera_vec, prev_left_xyz, left_xyz); // outputs
       if (!success) 
         continue;
 
       // Since our DEM is only known approximately, the true
       // intersection point of the ray coming from the left camera
       // with the DEM could be anywhere within m_dem_error from
-      // xyz. Use that to get an estimate of the disparity
+      // left_xyz. Use that to get an estimate of the disparity
       // error.
 
       ImageView<PixelMask<Vector2>> curr_disp(3, 1);
-      double bias[] = {-1.0, 1.0, 0.0};
+      double bias[] = {0.0, -1.0, 1.0};
       int success_arr[] = {0, 0, 0};
+      bool cross_check_success = true;
 
       for (int k = 0; k < curr_disp.cols(); k++) {
 
@@ -281,7 +287,7 @@ inline prerasterize_type prerasterize(BBox2i const& bbox) const {
         Vector2 right_fullres_pix;
         try {
           // TODO(oalexan1): Should the off-nadir angle affect the bias?
-          vw::Vector3 biased_xyz = xyz + bias[k] * m_dem_error * left_camera_vec;
+          vw::Vector3 biased_xyz = left_xyz + bias[k] * m_dem_error * left_camera_vec;
           // Raw camera pixel
           right_fullres_pix = m_right_camera_model->point_to_pixel(biased_xyz);
           // Transformed (mapprojected) camera pixel
@@ -291,15 +297,58 @@ inline prerasterize_type prerasterize(BBox2i const& bbox) const {
         }
 
         Vector2 right_lowres_pix = elem_prod(right_fullres_pix, m_downsample_scale);
+        
+        if (k == 0) { // TODO(oalexan1): Temporary!
+          // Validate with cross-check
+          vw::Vector3 right_camera_vec, right_xyz;
+          success = lowResPixToDemXyz(right_lowres_pix, m_downsample_scale, local_tx_right, 
+                                      m_right_camera_model, m_dem_error, georef_crop, 
+                                      dem_crop, m_height_guess, 
+                                      right_camera_vec, prev_right_xyz, right_xyz); // outputs
+          if (!success) {
+            cross_check_success = false;
+            break;
+          }
+         
+          vw::Vector2 left_fullres_pix2, left_lowres_pix2; 
+          try {
+            left_fullres_pix2 = m_left_camera_model->point_to_pixel(right_xyz);
+            // Transformed (mapprojected) camera pixel
+            left_fullres_pix2 = local_tx_left->forward(left_fullres_pix2);
+            // Convert to low-res pixel
+            left_lowres_pix2 = elem_prod(left_fullres_pix2, m_downsample_scale);
+          } catch (...) {
+            cross_check_success = false;
+            break;
+          }
+          
+          // There is really no good reason for the two pixels to differ by more than 10
+          // pixels. They can, however, if there is an occlusion. Also the xyz
+          // better be within 10 times m_dem_error from the original xyz.
+          // This will still allow for some small occlusions.
+          
+          // TODO(oalexan1): Need to tighten below to likely 2 * m_dem_error.
+          // Then need to ensure usual disparity filter happens, by percentile
+          // and elevation difference.
+          if (norm_2(left_lowres_pix2 - left_lowres_pix) > 10 || 
+              norm_2(left_xyz - right_xyz) > 10*m_dem_error) {
+            cross_check_success = false;
+            break;
+              // std::cout << "--failed. Norms are " 
+              //   << norm_2(left_lowres_pix2 - left_lowres_pix) << ' ' 
+              //   << norm_2(left_xyz - right_xyz) << std::endl;
+          }
+        }
+        
         curr_disp(k, 0) = right_lowres_pix - left_lowres_pix;
         curr_disp(k, 0).validate();
         success_arr[k] = 1;
-
-        // If the disparities at the endpoints of the range were successful,
-        // don't bother with the middle estimate.
-        if (k == 1 && success_arr[0] && success_arr[1]) break;
       }
 
+      // Continue if the cross-check failed
+      if (!cross_check_success) 
+       continue;
+        
       // Continue if none of the disparities were successful
       if (!success_arr[0] && !success_arr[1] && !success_arr[2]) 
         continue;
