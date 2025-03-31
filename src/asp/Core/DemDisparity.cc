@@ -43,30 +43,28 @@ using namespace vw::cartography;
 
 namespace asp {
 
-// Take a low-res pixel. Make it full res. Undo the transform. Intersect with the DEM.
-// Return true on success. This is used twice. It is templated so that it can be called
-// for both ImageViewRef and ImageView.
-template <class DEMImageT>
-inline bool 
-lowResPixToDemXyz(Vector2 const& left_lowres_pix,
-                  vw::Vector2f const& downsample_scale,
-                  vw::TransformPtr tx_left,
-                  vw::CamPtr left_camera_model,
-                  double dem_error, GeoReference const& dem_georef,
-                  DEMImageT & dem,
-                  double height_guess,
-                  // Outputs
-                  vw::Vector3 & left_camera_vec, Vector3 & prev_xyz, Vector3 & xyz) {
+// Take a low-res transformed pixel. Make it full res. Undo the transform.
+// Intersect the ray from it with the DEM. Return true on success. 
+bool lowResPixToDemXyz(Vector2 const& lowres_pix,
+                       vw::Vector2f const& downsample_scale,
+                       vw::TransformPtr tx_left,
+                       vw::CamPtr camera_model,
+                       double dem_error, GeoReference const& dem_georef,
+                       ImageViewRef<PixelMask<float>> const& dem,
+                       double height_guess,
+                       // Outputs
+                       vw::Vector3 & camera_vec, Vector3 & prev_xyz, Vector3 & xyz) {
   
-  // Calc the full-res pixel  
-  Vector2 left_fullres_pix = elem_quot(left_lowres_pix, downsample_scale);
-  left_fullres_pix = tx_left->reverse(left_fullres_pix);
+  // Calc the full-res pixel, and make it a camera pixel (without alignment or
+  // mapprojection)
+  Vector2 fullres_pix = elem_quot(lowres_pix, downsample_scale);
+  fullres_pix = tx_left->reverse(fullres_pix);
   
   bool has_intersection = false;
-  Vector3 left_camera_ctr;
+  Vector3 camera_ctr;
   try {
-    left_camera_ctr = left_camera_model->camera_center(left_fullres_pix);
-    left_camera_vec = left_camera_model->pixel_to_vector(left_fullres_pix);
+    camera_ctr = camera_model->camera_center(fullres_pix);
+    camera_vec = camera_model->pixel_to_vector(fullres_pix);
   } catch (...) {
     return false;
   }
@@ -76,7 +74,7 @@ lowResPixToDemXyz(Vector2 const& left_lowres_pix,
   double max_rel_tol      = 1e-14; // rel cost function change
   int    num_max_iter     = 50;
   bool   treat_nodata_as_zero = false;
-  xyz = camera_pixel_to_dem_xyz(left_camera_ctr, left_camera_vec,
+  xyz = camera_pixel_to_dem_xyz(camera_ctr, camera_vec,
                                 dem, dem_georef,
                                 treat_nodata_as_zero,
                                 has_intersection,
@@ -86,6 +84,40 @@ lowResPixToDemXyz(Vector2 const& left_lowres_pix,
   if (!has_intersection || xyz == Vector3()) 
     return false;
   
+  // Check for occlusion and steep slope. For that, move the point a little towards
+  // the camera, and check if it is below the DEM.
+  double delta = 1.0;
+  Vector3 perturbed_xyz = xyz - delta * camera_vec;
+
+  // std::cout.precision(17);
+  // double len1 = norm_2(xyz - camera_ctr);
+  // double len2 = norm_2(perturbed_xyz - camera_ctr);
+  // std::cout << "--len1 is " << len1 << ", len2 is " << len2 << std::endl;
+  // std::cout << "--dir0 is " << camera_vec << std::endl;
+  // std::cout << "dir1 is " << (xyz - camera_ctr)/len1 << std::endl;
+  // std::cout << "dir2 is " << (perturbed_xyz - camera_ctr)/len2 << std::endl;
+
+  Vector3 llh = dem_georef.datum().cartesian_to_geodetic(perturbed_xyz);
+  vw::Vector2 dem_pix = dem_georef.lonlat_to_pixel(Vector2(llh.x(), llh.y())); 
+  // std::cout << "--dem pix is " << dem_pix << std::endl;
+
+  // Prepare the image for interpolation. The same interpolation approach 
+  // is used as in camera_pixel_to_dem_xyz(), for consistency.
+  vw::PixelMask<float> no_data;
+  no_data.invalidate();
+  typedef vw::ValueEdgeExtension<vw::PixelMask<float>> NoDataType;
+  NoDataType no_data_ext(no_data);
+  vw::InterpolationView<vw::EdgeExtensionView<vw::ImageViewRef<vw::PixelMask<float>>, NoDataType>, vw::BilinearInterpolation> interp_dem
+    = vw::interpolate(dem, vw::BilinearInterpolation(), no_data_ext);
+    
+  // The DEM height at the perturbed point lon-lat must be valid and below the
+  // height on the point on the ray at same lon-lat, for it not to be occluded.
+  // Also do not let the angle between ray and DEM surface be too close to 0.
+  // Normally the DEM surface is notably more horizontal than the ray.
+  vw::PixelMask<float> interp_val = interp_dem(dem_pix.x(), dem_pix.y());  
+  if (!is_valid(interp_val) || (llh[2] - interp_val.child())/delta < 0.02)
+    return false;
+
   // Update the previous guess  
   prev_xyz = xyz;
   
@@ -169,30 +201,17 @@ inline prerasterize_type prerasterize(BBox2i const& bbox) const {
   std::vector<vw::Vector2> points;
   vw::cartography::sample_int_box(bbox, points);
 
-  // Make local copies of Map2Camp transforms, as those are not thread-safe
+  // Make local copies of Map2Camp transforms, as those are not thread-safe. Do
+  // not cache the transform portion for this tile. That is good when lots of
+  // points are queried from the tile. Here we need a low-resolution subset, and
+  // caching takes longer than picking the subset.
   vw::TransformPtr local_tx_left;
-  if (dynamic_cast<Map2CamTrans*>(m_tx_left.get()) != NULL) {
+  if (dynamic_cast<Map2CamTrans*>(m_tx_left.get()) != NULL)
     local_tx_left = vw::cartography::mapproj_trans_copy(m_tx_left);
-
-    // Do not cache the transform portion for this tile. That is good when lots
-    // of points are queried from the tile. Here we need a low-resolution
-    // subset, and caching greatly slows things down.
-#if 0
-    vw::BBox2 full_res_box;
-    for (int i = 0; i < points.size(); i++) {
-      vw::Vector2 low_res_pix = points[i];
-      vw::Vector2 full_res_pix = elem_quot(low_res_pix, m_downsample_scale);
-      full_res_box.grow(full_res_pix);
-    }
-    full_res_box.expand(1); // just in case
-    local_tx_left->reverse_bbox(full_res_box); // This will cache what is needed
-#endif
-    
-  } else {
+  else
     local_tx_left = m_tx_left;
-  }
 
-  // For the right transform we won't use the "reverse" function, so no need for caching.
+  // Same for the right camera
   vw::TransformPtr local_tx_right;
   if (dynamic_cast<Map2CamTrans*>(m_tx_right.get()) != NULL)
     local_tx_right = vw::cartography::mapproj_trans_copy(m_tx_right);
@@ -298,8 +317,8 @@ inline prerasterize_type prerasterize(BBox2i const& bbox) const {
 
         Vector2 right_lowres_pix = elem_prod(right_fullres_pix, m_downsample_scale);
         
-        if (k == 0) { // TODO(oalexan1): Temporary!
-          // Validate with cross-check
+        if (k == 0) {
+          // Validate with cross-check when not adding a bias yet
           vw::Vector3 right_camera_vec, right_xyz;
           success = lowResPixToDemXyz(right_lowres_pix, m_downsample_scale, local_tx_right, 
                                       m_right_camera_model, m_dem_error, georef_crop, 
@@ -321,25 +340,24 @@ inline prerasterize_type prerasterize(BBox2i const& bbox) const {
             cross_check_success = false;
             break;
           }
-          
-          // There is really no good reason for the two pixels to differ by more than 10
-          // pixels. They can, however, if there is an occlusion. Also the xyz
-          // better be within 10 times m_dem_error from the original xyz.
-          // This will still allow for some small occlusions.
-          
-          // TODO(oalexan1): Need to tighten below to likely 2 * m_dem_error.
-          // Then need to ensure usual disparity filter happens, by percentile
-          // and elevation difference.
-          if (norm_2(left_lowres_pix2 - left_lowres_pix) > 10 || 
-              norm_2(left_xyz - right_xyz) > 10*m_dem_error) {
+
+          // There is really no good reason for the pixel from camera 1 going
+          // to the ground, then to camera 2, then back to ground and camera 1,
+          // to be any different than 1 pixel. Or for the intersection with the 
+          // ground from the two cameras to differ.
+          // TODO(oalexan1): How about comparing resulting xyz as well?
+          // Note that xyz is found with precision of 1e-3, or so, so need to 
+          // allow for some error for that below.
+          if (norm_2(left_lowres_pix2 - left_lowres_pix) > 1.0 ||
+              norm_2(left_xyz - right_xyz) > std::max(m_dem_error, 0.01)) {
             cross_check_success = false;
             break;
-              // std::cout << "--failed. Norms are " 
-              //   << norm_2(left_lowres_pix2 - left_lowres_pix) << ' ' 
-              //   << norm_2(left_xyz - right_xyz) << std::endl;
           }
         }
         
+        if (!cross_check_success) 
+          break;
+          
         curr_disp(k, 0) = right_lowres_pix - left_lowres_pix;
         curr_disp(k, 0).validate();
         success_arr[k] = 1;

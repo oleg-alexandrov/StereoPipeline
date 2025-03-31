@@ -222,6 +222,10 @@ As an example, invoke ``parallel_stereo`` with options along the lines of::
 When features are washed out at low resolution, consider also adding the option
 ``--corr-max-levels 2``, or see :numref:`sparse_disp`.
 
+In latest ASP (:numref:`release`), occlusion in the DEM is modeled, and the
+options ``--outlier-removal-params`` and ``--max-disp-spread`` can further filter
+the produced low-resolution disparity.
+
 See :numref:`stereodefault` for more information on these options.
 
 It is suggested to extract the produced low-resolution disparity bands with

@@ -230,6 +230,7 @@ void produce_lowres_disparity(ASPGlobalOptions & opt) {
     // Restore the user xcorr_threshold
     stereo_settings().xcorr_threshold = orig_xcorr_threshold;
     
+    // TODO(oalexan1): This needs to apply to also seed mode 2
     // Read D_sub back from disk, filter it, and write it back.
     // Avoid the pinhole session as that one has no datum which we need.
     // Avoid the correlator mode as then there are no cameras.

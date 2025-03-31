@@ -37,7 +37,7 @@ jitter_solve (:numref:`jitter_solve`):
   * Added the option ``--smoothness-weight`` to control high-frequency changes
     in the camera orientations in linescan cameras.
   * Can use GCP files.
-  * Can read a control network from an nvm file.
+  * Can read a control network from an NVM file.
   * Write the stereo convergence angles. Can write registration errors on the
     ground (:numref:`other_jitter_out`).
 
@@ -68,6 +68,10 @@ parallel_stereo (:numref:`parallel_stereo`):
     (:numref:`change3`).
   * The initial low-resolution disparity from a DEM works with mapprojected
     images (:numref:`d_sub_dem`).
+  * Model occlusion when producing a low-res disparity from a DEM. All 
+    the produced disparity to be further filtered with
+    ``--outlier-removal-params`` and ``--max-disp-spread``.
+    
   * Added a discussion of various ways ASP can make use of existing terrain data
     (:numref:`existing_terrain`).
   * If the number of matches from disparity is much less than requested, try to
