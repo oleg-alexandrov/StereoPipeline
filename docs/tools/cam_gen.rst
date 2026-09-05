@@ -408,6 +408,32 @@ aircraft that records metadata in a list (:numref:`sfmicebridge`), or in EXIF
 
 See :numref:`cam_gen_validation` for how to validate the created cameras.
 
+.. _cam_gen_vendor:
+
+Vendor exterior orientation
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+A commercial frame-camera delivery gives, per image, the camera position in a
+projected coordinate system and the orientation as omega, phi, and kappa angles,
+plus a separate interior-orientation (camera) file. These do not match the
+roll, pitch, and yaw convention above, so ``cam_gen`` reads them with
+``--vendor``. Only the ESRI convention is supported, in which the positions are
+in a projected coordinate system and the angles are referenced to the projected
+grid. Example::
+
+    cam_gen --vendor esri           \
+      --extrinsics   block_eop.txt  \
+      --intrinsics   camera.csv     \
+      --image-list   images.txt     \
+      --output-dir   cameras        \
+      --t_srs        EPSG:32617
+
+One Pinhole ``.tsai`` camera per image is written to the output directory, and
+the list of cameras (in the image-list order) is saved as
+``cameras/camera_list.txt``, for use with ``bundle_adjust``. A worked end-to-end
+example, including a reference terrain, camera validation, and bundle adjustment,
+is in :numref:`aerial_bathymetry`.
+
 .. _cam_gen_rpc:
 
 Export RPC
@@ -632,10 +658,38 @@ Command-line options
     and in :numref:`skysat_stereo` for various applications.
 
 --extrinsics <string (default: "")>
-    Read a file having on each line an image name and extrinsic parameters as
-    longitude, latitude, height above datum, roll, pitch, and yaw. Write one
-    .tsai camera file per image. See :numref:`cam_gen_extrinsics`.
-    
+    Read a file having on each line an image name and the exterior orientation,
+    and write one camera per image. Without ``--vendor``, the columns are
+    longitude, latitude, height above datum, roll, pitch, and yaw
+    (:numref:`cam_gen_extrinsics`). With ``--vendor``, the file follows that
+    vendor's convention (:numref:`cam_gen_vendor`).
+
+--vendor <string (default: "")>
+    Interpret ``--extrinsics`` and ``--intrinsics`` using a vendor's convention.
+    Only ``esri`` is supported: the positions are in a projected coordinate
+    system (``--t_srs``) and the angles are omega, phi, and kappa referenced to
+    the projected grid. Requires ``--extrinsics``, ``--output-dir``, ``--t_srs``,
+    and either ``--intrinsics`` or ``--sample-file``. See :numref:`cam_gen_vendor`.
+
+--intrinsics <string (default: "")>
+    The interior-orientation (camera) file, parsed according to ``--vendor``. For
+    ``esri``, the ESRI camera CSV (focal length, pixel size, principal point,
+    image size). Alternatively use ``--sample-file`` (a sample .tsai).
+
+--image-list <string (default: "")>
+    With ``--vendor``, a file listing the input images (one per line), matched to
+    the exterior-orientation records by file name. If not set, all records are
+    used.
+
+--output-dir <string (default: "")>
+    With ``--vendor``, the directory where the per-image cameras are written. The
+    list of written cameras, in the same order as the images, is saved as
+    ``<output-dir>/camera_list.txt``, for use with ``bundle_adjust``.
+
+--t_srs <string (default: "")>
+    With ``--vendor``, the projected coordinate system (as a PROJ, WKT, or EPSG
+    string) of the exterior-orientation positions, for example ``EPSG:32617``.
+
 --cam-height <float (default: 0.0)>
     If both this and ``--cam-weight`` are positive, enforce that the output
     camera is at this height above datum.

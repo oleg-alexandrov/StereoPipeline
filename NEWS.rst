@@ -5,6 +5,7 @@ New features:
   * Added a pipeline for creating terrain models from TGO CaSSIS pushframe images
     (:numref:`cassis`).
   * Support the SPOT 1, 2, 3, and 4 HRV linescan cameras (:numref:`spot14`).
+  * Added an example for bathymetry with aerial images (:numref:`aerial_bathymetry`).
   * Added the AKAZE, BRISK, and KAZE interest point detection methods to
     ``parallel_stereo``, ``bundle_adjust``, etc. (:numref:`stereodefault`).
   * Added an example for Viking Orbiter (:numref:`viking`).
@@ -98,6 +99,8 @@ cam_gen (:numref:`cam_gen`):
     while keeping the pose and other intrinsics fixed. For a cube, the focal
     length, optical center, and pose are read from the cube directly
     (:numref:`csm_refit_dist`).
+  * Added ``--vendor esri`` to create cameras from a vendor exterior orientation
+    format (:numref:`aerial_bathymetry`).
 
 sparse_disp (:numref:`sparse_disp`):
   * Added the ability to produce subpixel-level match files (parabola subpixel)

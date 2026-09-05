@@ -95,7 +95,7 @@ An example of how these values are specified in a camera file is in
 :numref:`tsai_dist_example`.
 
 Adjustable Tsai
-^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^
   
 A variant of the Tsai model where any number of *K* terms and a skew term
 (alpha) can be used. Can apply the AgiSoft Lens calibration parameters.

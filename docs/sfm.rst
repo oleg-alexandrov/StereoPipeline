@@ -76,6 +76,11 @@ through to optimize their results. This primarily involves setting up a
 custom flag file for Theia and/or passing in settings to
 ``bundle_adjust``.
 
+If instead the cameras are delivered by a vendor as exterior orientation (per-image
+position and omega/phi/kappa angles), such as for an aerial frame-camera block, they
+can be created directly with ``cam_gen`` rather than solved from scratch. See
+:numref:`aerial_bathymetry`.
+
 .. _sfmgeneric:
 
 Example: Apollo 15 Metric Camera
