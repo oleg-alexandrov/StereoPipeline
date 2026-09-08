@@ -140,6 +140,10 @@ For an underwater point, the two camera rays are bent at the water surface
 according to Snell's law before they are intersected. The covariance is
 propagated likewise.
 
+The water-surface plane (:numref:`bathy_plane_calc`) and the refraction index
+are held fixed in this computation. Hence, the propagated horizontal and
+vertical uncertainties reflect only the input camera covariances.
+
 It has been observed that under water the vertical uncertainty is larger than on
 land, growing with the water depth, while the horizontal uncertainty changes
 little. That is because the ray bending acts mostly in the vertical direction.

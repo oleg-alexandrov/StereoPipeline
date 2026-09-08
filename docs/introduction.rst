@@ -9,7 +9,8 @@ satellites, around Earth and other planets (:numref:`examples`), robotic rovers
 camera pose information.
 
 It has functionality for 3D terrain creation from stereo (:numref:`tutorial`),
-alignment of point clouds (:numref:`pc_align`), structure-from-motion
+including shallow-water bathymetry (:numref:`bathy_intro`), alignment of point
+clouds (:numref:`pc_align`), structure-from-motion
 (:numref:`sfm`), shape-from-shading (:numref:`sfs_usage`), bundle adjustment
 (:numref:`bundle_adjust`), solving for jitter (:numref:`jitter_solve`), rig
 calibration (:numref:`rig_calibrator`), refining camera intrinsics

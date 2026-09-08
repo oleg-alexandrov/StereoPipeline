@@ -8,7 +8,13 @@ Structure-from-Motion (SfM) if there exist two or more images and the camera
 models may not be fully known. This can be useful with aerial, hand-held, and
 historical images. 
 
-If the images have known metadata, such as stored in the EXIF header 
+When camera data exists
+-----------------------
+
+An example of processing an aerial dataset that already provides calibration and
+extrinsics data, and also handles bathymetry, is in :numref:`aerial_bathymetry`.
+
+If the images have known camera poses, such as stored in the EXIF header
 or from other sources, SfM can be avoided. That is discussed in the UAS
 example (:numref:`sfm_uas`).
 
@@ -734,17 +740,18 @@ UAS example
 -----------
 
 The following example demonstrates how to produce camera models and a joint DEM
-from images taken by a UAS (Unmanned Aerial System). It is assumed
-that:
+from images taken by a UAS (Unmanned Aerial System).
+
+A second example, with more details and a slightly different setup, is in
+:numref:`aerial_bathymetry`.
+
+Here it is assumed that:
 
  - The images store in the EXIF metadata the camera center longitude, latitude,
    height above the datum, and yaw angle (the ``GPSImgDirection`` field),
    relative to the North direction. Alternatively, this information (and
    perhaps also camera roll and pitch) is available in a list.
    
- - The camera looks generally downward. This is not a strong assumption but
-   makes it easier to determine which images overlap with which.
-
  - The camera is Frame (Pinhole) (:numref:`pinholemodels`), with known
    intrinsics. If those are not known, it is shown below how to estimate them
    and then refine them later.
@@ -783,11 +790,11 @@ that can be found as described in :numref:`initial_terrain`, and
 which may need an adjustment as shown in :numref:`conv_to_ellipsoid`.
 
 The camera models can be refined with ``bundle_adjust`` with fixed intrinsics,
-as shown in :numref:`kaguya_ba_initial_ba`. The intrinsics can be refined later
-(:numref:`floatingintrinsics`).
+as shown in :numref:`aerial_bathymetry`. The intrinsics can be refined, if need
+be (:numref:`floatingintrinsics`).
 
 The images and produced cameras can be used to create and then merge DEMs, per
-:numref:`sfm_multiview`.
+:numref:`aerial_bathymetry` or :numref:`sfm_multiview`.
 
 The general Structure-from-Motion (SfM) approach is described in
 :numref:`sfm`.

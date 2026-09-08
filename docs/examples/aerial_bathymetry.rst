@@ -3,19 +3,21 @@
 Aerial images for shallow-water bathymetry
 ------------------------------------------
 
-This is an end-to-end example for how to to produce bathymetry-corrected
+This is an end-to-end example for how to produce bathymetry-corrected
 (:numref:`bathy_intro`) digital elevation models (DEM) with images from an
 airborne frame-camera survey.
 
-The images were crated with a Leica RCD30 camera flown over the Gulf coast near
+The images were created with a Leica RCD30 camera flown over the Gulf coast near
 Sarasota, Florida, at about 2300 m above the water, with a ground sample
-distance of about 0.23 m. 
+distance of about 0.23 m.
+
+A related example is in :numref:`sfm_uas`.
 
 Vendor metadata
 ~~~~~~~~~~~~~~~
 
-The data came with an an exterior-orientation table (extrinsics). Each line
-has the image name the camera position in a projected coordinate system, and the
+The data came with an exterior-orientation table (extrinsics). Each line
+has the image name, the camera position in a projected coordinate system, and the
 orientation as omega, phi, and kappa angles.
 
 What follows is a simplified example of such a file. The column headers and
@@ -36,7 +38,7 @@ distortion::
     CameraModel,FocalLength,PrincipalX,PrincipalY,NRows,NCols,PixelSize,DistortionType,Radial,Tangential
     RCD30,53000,0,0,7788,10336,5.2,DistortionModel,0;0;0;0,0;0
 
-Here the focal length and pixel size are in microns. 
+Here the focal length and pixel size are in microns.
 
 The RCD30 delivers already-undistorted imagery (all distortion coefficients are
 zero), as is typical for a metric aerial camera. In general, the OpenCV
@@ -44,11 +46,11 @@ radial-tangential lens distortion model will be assumed, with the coefficients
 in the order K1, K2, K3, P1, P2 (:numref:`pinhole_distortion`).
 
 Neither metadata file states its coordinate system or the frame the angles are
-in. Those are set by the vendor's convention, which we set below with the the
-``--vendor`` option. 
+in. Those are set by the vendor's convention, which we set below with the
+``--vendor`` option.
 
 ASP supports parsing in addition the orientations given as roll, pitch, yaw
-(:numref:`cam_gen_extrinsics`). 
+(:numref:`cam_gen_extrinsics`).
 
 It is suggested to study such input on a case-by-case basis. Our Pinhole camera
 format used for output is described in :numref:`pinholemodels`.
@@ -56,7 +58,8 @@ format used for output is described in :numref:`pinholemodels`.
 Creation of camera models
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The following creates one ASP Pinhole camera per image::
+The following creates one ASP Pinhole camera per image. This requires
+build 2026/09/10 (:numref:`release`) or later::
 
     cam_gen --vendor esri                  \
       --extrinsics RCD30_2026_eop.txt      \
@@ -75,12 +78,12 @@ list is passed later to ``bundle_adjust`` (:numref:`bundle_adjust`) and
 The value of ``--t_srs`` is the projected coordinate system of the positions in the
 exterior-orientation file, given as a PROJ, WKT, or EPSG string (here UTM zone 17N
 on the WGS84 datum). It cannot be inferred from the easting and northing alone, so
-it must be provided. Only the ESRI convention is supported at this time. 
+it must be provided. Only the ESRI convention is supported at this time.
 
 For the ESRI convention the omega, phi, and kappa angles are referenced to the
 projected grid, so the grid axes are not aligned with true north away from the
 central meridian. ``cam_gen`` accounts for this grid-to-true-north convergence
-automatically, computing it from the coordinate system at each camera. 
+automatically, computing it from the coordinate system at each camera.
 
 Getting this wrong produces a constant rotation of every camera about its
 optical axis, which is easy to miss in a summary statistic but is caught
@@ -94,7 +97,7 @@ A reference terrain
 Validation and bundle adjustment both need a prior terrain over the area. A free
 global option is the Copernicus 30 m DEM. Its heights are relative to the EGM2008
 geoid, so they must be converted to WGS84 ellipsoid heights with ``dem_geoid``
-(:numref:`dem_geoid`) before use, as discussed in :numref:`initial_terrain`. 
+(:numref:`dem_geoid`) before use, as discussed in :numref:`initial_terrain`.
 
 Where available, the USGS 3DEP lidar DEM is a much finer alternative (about 1
 m), also convertible with ``dem_geoid`` (its heights are relative to the NAVD88
@@ -127,29 +130,37 @@ on the ground. Mapproject a frame onto the reference DEM with its created camera
 
 Then overlay the mapprojected frame on the DEM's hillshade, for example in
 ``stereo_gui`` (:numref:`stereo_gui`). If the cameras are right, the landmarks
-will agree. 
+will agree.
 
 .. figure:: ../images/examples/validation_overlay.png
    :name: aerial_bathymetry_overlay
 
    Left: a frame mapprojected with its ``cam_gen`` camera. Center: the 3DEP lidar
-   DEM hillshade over the same area. Right: the two overlaid. 
+   DEM hillshade over the same area. Right: the two overlaid.
 
 This check is strongly suggested. Vendors differ in their angle and coordinate
-conventions, and a wrong convention can result in gross misalignment. 
+conventions, and a wrong convention can result in gross misalignment.
 
 .. _aerial_bathymetry_ba:
 
 Bundle adjustment
 ~~~~~~~~~~~~~~~~~
 
-The vendor positions are usually excellent, but a small constant orientation offset
-can remain. Bundle adjustment (:numref:`bundle_adjust`) refines the cameras so they
-are mutually consistent::
+Modern aerial camera systems have reasonably good geolocation and pointing
+information. Bundle adjustment (:numref:`bundle_adjust`) refines the cameras to
+tighten their consistency.
+
+We found that *not* modeling bathymetry at this stage is acceptable. Most rays
+are seen in a single pair of images, and they still geometrically intersect when
+meeting under water, even without taking into account refraction, just at a
+shallower point. The underlying solver uses a robust threshold
+(:numref:`ba_optim`) that attenuates outliers.
+
+Command::
 
     bundle_adjust                            \
       --image-list  images.txt               \
-      --camera-list cameras.txt              \
+      --camera-list cameras/camera_list.txt  \
       --inline-adjustments                   \
       --auto-overlap-params 'ref_dem.tif 15' \
       --min-triangulation-angle 1e-10        \
@@ -158,24 +169,165 @@ are mutually consistent::
       --num-iterations 100 --num-passes 2    \
       -o ba/run
 
+Ensure that the image and camera lists are in the same order.
+
 The option ``--auto-overlap-params`` uses the prior DEM to decide which images
-overlap, rather than trying all pairs (:numref:`ba_options`). An airborne block has
-many low-convergence neighbors (adjacent frames along a strip look nearly straight
-down), so ``--min-triangulation-angle`` is set very small to keep those pairs, and
-``--forced-triangulation-distance`` (roughly the camera height above the ground, in
-meters) provides a stable range where the rays are nearly parallel. The value of
-``--camera-position-uncertainty`` (here 100 m in the horizontal and vertical) is a
-soft anchor to the vendor positions. Keep it lenient. Too tight a constraint can
-prevent convergence.
+overlap, rather than trying all pairs (:numref:`ba_options`).
 
-Inspect the result. The initial and final reprojection error statistics are printed
-to the screen and saved to the ``pointmap.csv`` files (:numref:`ba_err_per_point`).
-Also inspect how far the cameras moved. For this block, bundle adjustment moved the
-camera positions by only about 0.2 m (the vendor positions were already good), and
-the reprojection error dropped from about 100 pixels, driven by a small constant
-optical-axis rotation, to about 0.3 pixels, confirming that the block is now
-internally consistent.
+The options ``--min-triangulation-angle`` and
+``--forced-triangulation-distance`` (set to roughly the camera height above the
+ground, in meters) ensure that triangulated points between cameras with very
+little perspective difference are not filtered out.
 
-From here the adjusted cameras (in ``ba/run-*.tsai``) are used directly for
-``parallel_stereo`` and the shallow-water bathymetry processing of
-:numref:`bathy_intro`.
+The value of ``--camera-position-uncertainty`` (here 100 m in the horizontal and
+vertical) prevents large movements in camera positions. Too tight a constraint
+can prevent convergence.
+
+Inspect the initial and final reprojection errors in the ``pointmap.csv`` files
+(:numref:`ba_err_per_point`). Inspect how much the camera positions and
+triangulated points moved, as well as the pixel reprojection per camera
+(:numref:`ba_out_files`). Pixel errors should be well under a pixel if lens
+distortion is modeled correctly. For this dataset, the camera positions moved by
+about 0.2 m and the final pixel reprojection error was about 0.3 pixels.
+
+.. _aerial_bathymetry_stereo:
+
+DEM creation
+~~~~~~~~~~~~
+
+Unlike with satellite data, a collection of aerial images has many overlapping
+stereo pairs. Bundle adjustment writes a report with the pairwise stereo
+convergence angle for all image pairs (:numref:`ba_conv_angle`).
+
+It is suggested to run ``parallel_stereo`` (:numref:`parallel_stereo`) on
+the pairs whose convergence angle is between 15 and 45 degrees
+(:numref:`stereo_pairs`).
+
+This requires build 2026/09/10 (:numref:`release`) or later.
+
+Use the cameras produced during bundle adjustment. Example for one pair::
+
+    parallel_stereo                      \
+      --stereo-algorithm asp_mgm         \
+      --subpixel-mode 9                  \
+      left.tif right.tif                 \
+      ba/run-left.tsai ba/run-right.tsai \
+      stereo/left_right/run
+
+Then make a DEM from each pair with :ref:`point2dem`. Use a single fixed grid
+size and projection for every pair so these DEMs are easy to merge later::
+
+    point2dem --tr 0.9     \
+        --t_srs EPSG:32617 \
+        --errorimage       \
+        stereo/left_right/run-PC.tif
+
+Here the grid size is 0.9 m, about four times the 0.23 m ground sample distance, in
+the same UTM zone as the cameras.
+
+Blend the DEMs into one mosaic with :ref:`dem_mosaic`::
+
+    dem_mosaic stereo/*/run-DEM.tif \
+        -o mosaic_dem.tif
+
+The triangulation error (:numref:`triangulation_error`) is mosaicked separately
+with ``dem_mosaic --max`` (:numref:`dem_mosaic`), which keeps the largest
+error value at a given location::
+
+    dem_mosaic --max stereo/*/run-IntersectionErr.tif \
+      -o mosaic_tri_err.tif
+
+.. figure:: ../images/examples/aerial_dem_vs_3dep.png
+   :name: aerial_dem_3dep
+   :width: 100%
+
+   Left: the color-hillshaded mosaicked stereo DEM. Right:
+   the USGS 3DEP lidar DEM over the same window, on the same grid, shifted up by
+   about 2 m to match this DEM's vertical level (the horizontal registration is
+   already good, and only a near-constant vertical offset remains). The developed area
+   agrees in both. Areas in deep water are unreliable.
+
+To create an orthoimage, mapproject each image onto the mosaic DEM at the 0.23 m
+ground sample distance::
+
+    mapproject --tr 0.23  \
+        mosaic_dem.tif    \
+        image.tif         \
+        ba/run-image.tsai \
+        image_map.tif
+
+then mosaic with::
+
+    dem_mosaic --first *_map.tif -o ortho_mosaic.tif
+
+The ``--first`` option takes the first valid pixel instead of blending, which
+avoids smearing image seams and any small residual misregistration in the ortho.
+
+.. figure:: ../images/examples/aerial_ortho_trierr.png
+   :name: aerial_ortho_trierr
+   :width: 100%
+
+   Left: the orthoimage over the developed area. Right: the triangulation error.
+   Over open water there is no texture, so stereo correlation finds no matches and
+   the error is high there. That area can be ignored.
+
+.. _aerial_bathymetry_mask:
+
+Water masking
+~~~~~~~~~~~~~
+
+Shallow-water bathymetry needs a water mask. The near-infrared (NIR) band is
+strongly absorbed by water, so it separates land from water cleanly. Mapproject
+and mosaic the NIR band the same way as the orthoimage, then threshold it. The
+threshold can be found automatically with Otsu's method or a kernel-density
+estimate, both described in :numref:`bathy_thresh`. Turn the threshold into a mask
+with ``image_calc`` (:numref:`image_calc`), so that land is a positive value and
+water is nodata::
+
+    image_calc -c "sign(var_0 - T)" --output-nodata-value -1 \
+      nir_ortho_mosaic.tif -o ortho_water_mask.tif
+
+Here ``T`` is the threshold. Land (NIR above the threshold) becomes positive, and
+water (at or below the threshold) becomes nodata.
+
+.. figure:: ../images/examples/aerial_nir_mask.png
+   :name: aerial_nir_mask
+   :width: 100%
+
+   Left: the mosaicked NIR orthoimage. Water is dark, land is bright. Right: the
+   water mask derived from it. Land is kept (green), water is dropped (light). The
+   canal interiors are correctly classified as water.
+
+.. _aerial_bathymetry_correct:
+
+Bathymetry correction
+~~~~~~~~~~~~~~~~~~~~~
+
+The stereo above ignores refraction at the water surface, so underwater terrain is
+too shallow. The bathymetry correction of :numref:`bathy_intro` fixes this. First,
+fit one water-surface plane over the whole dataset with ``bathy_plane_calc``
+(:numref:`water_surface`), using the global ortho mask and the DEM::
+
+    bathy_plane_calc                 \
+      --mask ortho_water_mask.tif    \
+      --dem mosaic_dem.tif           \
+      --output-plane bathy_plane.txt
+
+Because there is a single mosaicked orthoimage, one global mask and one plane serve
+the entire dataset. This is simpler than the per-image left and right masks used for
+a single pair in :numref:`bathy_mask_creation`.
+
+Then re-run stereo triangulation for each pair with the plane and the saltwater
+refraction index (:numref:`bathy_reuse_run`), make a DEM per pair, and mosaic as
+before into a bathymetry-corrected DEM.
+
+.. figure:: ../images/examples/aerial_bathy_deepen.png
+   :name: aerial_bathy_deepen
+   :width: 100%
+
+   Left: the bathymetry-corrected DEM, as a terrain-colored hillshade. Right: the
+   change from the correction, computed as the corrected DEM minus the DEM before
+   correction. Blue is where the water bottom moved deeper, the expected
+   refraction signature. Land is unchanged (pale). The value is clamped to 1.5 m.
+   The sparse deep-water and bad-stereo areas are noisy and are clamped, not
+   hidden. The correction deepens the shallow water by roughly 1 m here.

@@ -1424,6 +1424,8 @@ Match files and control networks
     value of ``--heights-from-dem-uncertainty`` for DEM-constrained points.
     Can be inspected with ``stereo_gui`` (:numref:`stereo_gui_vwip_gcp`).
 
+.. _ba_optim:
+
 Optimization
 ^^^^^^^^^^^^
 
