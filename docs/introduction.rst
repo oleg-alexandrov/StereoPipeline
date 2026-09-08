@@ -4,9 +4,8 @@ Introduction
 The NASA Ames Stereo Pipeline (ASP) is a suite of free and open source automated
 geodesy and stereogrammetry tools designed for processing images captured from
 satellites, around Earth and other planets (:numref:`examples`), robotic rovers
-(:numref:`rig_msl`, :numref:`csm_msl`), aerial cameras and low-cost satellites
-(:numref:`skysat`), historical images (:numref:`kh4`), with and without accurate
-camera pose information.
+(:numref:`rig_msl`, :numref:`csm_msl`), aerial cameras (:numref:`sfm`), low-cost
+satellites (:numref:`skysat`), and historical images (:numref:`kh4`).
 
 It has functionality for 3D terrain creation from stereo (:numref:`tutorial`),
 including shallow-water bathymetry (:numref:`bathy_intro`), alignment of point
