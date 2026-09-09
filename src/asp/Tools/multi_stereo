@@ -58,36 +58,47 @@ def process_args(args):
     parser = argparse.ArgumentParser(description = "Parameters for multi_stereo.")
     
     parser.add_argument("--mode", dest="mode", default="",
-                        help = "Processing mode. One of: 'mesh' (pairwise stereo, "  + \
-                        "pc_filter, then a fused voxblox mesh, with rig cameras) or " + \
-                        "'dem_mosaic' (pairwise stereo on mapprojected images with "  + \
-                        "the given cameras and a seed DEM, per-pair point2dem, then " + \
-                        "a DEM mosaic and a maximum triangulation error mosaic). "    + \
+                        help = "Processing mode. One of: 'mesh' (pairwise stereo, "     + \
+                        "pc_filter, then a fused voxblox mesh, with rig cameras) or "   + \
+                        "'dem_mosaic' (pairwise stereo with the given cameras on raw "  + \
+                        "or mapprojected images, the latter with a seed DEM, per-pair " + \
+                        "point2dem, then a DEM mosaic and a maximum triangulation "     + \
+                        "error mosaic). "                                               + \
                         "Required.")
 
     parser.add_argument("--overlap-list", dest="overlap_list", default="",
-                        help = "Text file with the image pairs to run stereo on, one " + \
-                        "pair per line. For mode 'mesh': two columns, "                + \
-                        "'left_image right_image', with names as in --camera-poses. "  + \
-                        "For mode 'dem_mosaic': four columns, "                        + \
-                        "'left_image right_image left_camera right_camera'. Lines "    + \
-                        "starting with '#' and blank lines are ignored. Required.")
+                        help = "Text file with the image pairs to run stereo on, one "  + \
+                        "pair per line, two columns, 'left_image right_image'. For "    + \
+                        "mode 'mesh' the names are as in --camera-poses, for mode "     + \
+                        "'dem_mosaic' as in --image-list. Lines starting with '#' and " + \
+                        "blank lines are ignored.")
 
-    parser.add_argument("--out-prefix", dest="out_prefix",
-                        default="", help="The output prefix, as for parallel_stereo "  + \
+    parser.add_argument("--image-list", dest="image_list", default="",
+                        help = "List of images, one per line (mode 'dem_mosaic'). Each " + \
+                        "image is paired with a camera in --camera-list by position. "   + \
+                        "The overlap list and the convergence report name images from "  + \
+                        "this list.")
+
+    parser.add_argument("--camera-list", dest="camera_list", default="",
+                        help = "List of cameras, one per line, in the same order as "    + \
+                        "--image-list (mode 'dem_mosaic'). From a bundle_adjust prefix " + \
+                        "these are <prefix>-image_list.txt and <prefix>-camera_list.txt.")
+
+    parser.add_argument("--output-prefix", dest="out_prefix",
+                        default="", help="The output prefix, as for parallel_stereo "   + \
                         "and stereo_dist. The DEM mosaic, mesh, per-pair stereo data, " + \
                         "and other outputs are named starting with this prefix, for "   + \
                         "example <prefix>-DEM.tif.")
 
     parser.add_argument("--stereo-options", dest="stereo_options",
                         default="", help="Options to pass to parallel_stereo. Use " + \
-                        "double quotes around the full list and simple quotes "   + \
+                        "double quotes around the full list and simple quotes "     + \
                         "if needed by an individual option, or vice-versa.")
 
     parser.add_argument("--processes", dest="processes", default=1, type=int,
-                        help = "The width of the parallel job: how many per-tile "     + \
-                        "stereo jobs run at once, pooled over all pairs. If "          + \
-                        "--nodes-list or $PBS_NODEFILE is set, the pool is spread "     + \
+                        help = "The width of the parallel job: how many per-tile "  + \
+                        "stereo jobs run at once, pooled over all pairs. If "       + \
+                        "--nodes-list or $PBS_NODEFILE is set, the pool is spread " + \
                         "over those nodes. Default: 1.")
 
     parser.add_argument("--threads", dest="threads", default=0, type=int,
@@ -97,16 +108,16 @@ def process_args(args):
                         "parallel_stereo decide (or use --stereo-options).")
 
     parser.add_argument("--nodes-list", dest="nodes_list", default="",
-                        help = "A file with the list of computing nodes, one per "     + \
+                        help = "A file with the list of computing nodes, one per "      + \
                         "line, over which to spread the pooled stereo jobs, as for "    + \
                         "parallel_stereo and stereo_dist. The nodes must share a file " + \
                         "system. Default: the value of the environment variable "       + \
                         "$PBS_NODEFILE, if set (as on a PBS cluster).")
 
     parser.add_argument("--first-step",  dest="first_step", default="stereo",
-                        help  = "Let the first step run by this tool be, for mode "   + \
-                        "'mesh': 'stereo', 'pc_filter', or 'mesh_gen'; for mode "      + \
-                        "'dem_mosaic': 'stereo', 'dem', or 'fuse'. This allows "       + \
+                        help  = "Let the first step run by this tool be, for mode " + \
+                        "'mesh': 'stereo', 'pc_filter', or 'mesh_gen'; for mode "   + \
+                        "'dem_mosaic': 'stereo', 'dem', or 'fuse'. This allows "    + \
                         "resuming a run at a desired step.")
 
     parser.add_argument("--last-step",  dest="last_step", default="",
@@ -133,8 +144,8 @@ def process_args(args):
                         help = "The dimensions of the central image region to keep " + \
                         "after the internal undistortion step and before using "     + \
                         "it in stereo (mode 'mesh'). Normally 85%% - 90%% of "       + \
-                        "distorted (actual) image dimensions would do. Suggested "    + \
-                        "the Astrobee images:"  + \
+                        "distorted (actual) image dimensions would do. Suggested "   + \
+                        "the Astrobee images:"                                       + \
                         " sci_cam: '1250 1000' nav_cam: '1100 776'. haz_cam: '250 200'.")
 
     parser.add_argument("--pc-filter-options", dest="pc_filter_options",
@@ -146,31 +157,25 @@ def process_args(args):
 
     # Options for mode 'dem_mosaic' (DEM per pair, then mosaic)
     parser.add_argument("--dem", dest="seed_dem", default="",
-                        help = "Seed DEM (mode 'dem_mosaic'). For mapprojected input " + \
-                        "images this is the DEM they were mapprojected onto. It is "   + \
-                        "appended as the trailing positional argument to "             + \
-                        "parallel_stereo.")
-
-    parser.add_argument("--ref-dem", dest="ref_dem", default="",
-                        help = "Reference DEM (mode 'dem_mosaic'), for example a sharp " + \
-                        "CTX DEM. If set, a per-pair DEM is dropped from the mosaic "    + \
-                        "when its mean elevation departs from the reference over the "   + \
-                        "same footprint by more than --blunder-tol. Also used to set "  + \
-                        "the output projection if it is not otherwise given.")
+                        help = "Seed DEM (mode 'dem_mosaic'). For mapprojected input "  + \
+                        "images this is the DEM they were mapprojected onto, appended " + \
+                        "as the trailing positional argument to parallel_stereo. It "   + \
+                        "is also the blunder-filter reference, and sets the output "    + \
+                        "projection if not otherwise given.")
 
     parser.add_argument("--blunder-tol", dest="blunder_tol", default=500.0, type=float,
-                        help = "Blunder filter tolerance, in meters (mode "     + \
-                        "'dem_mosaic', needs --ref-dem). A per-pair DEM whose "  + \
-                        "mean elevation departs from the reference over its "    + \
+                        help = "Blunder filter tolerance, in meters (mode "      + \
+                        "'dem_mosaic', needs --dem). A per-pair DEM whose mean " + \
+                        "elevation departs from the seed DEM (--dem) over its "  + \
                         "footprint by more than this is dropped. Default: 500.")
 
     parser.add_argument("--point2dem-options", dest="point2dem_options", default="",
-                        help = "Options for point2dem (mode 'dem_mosaic'). Pass "      + \
-                        "--errorimage to also mosaic the maximum triangulation error, "+ \
-                        "and --orthoimage (with no argument, the per-pair L.tif is "   + \
-                        "added automatically) to also mosaic an orthoimage (DRG), as " + \
-                        "in stereo_dist. If both --tr and --t_srs are given here, they "+ \
-                        "are used for all pairs; otherwise the grid and projection are "+ \
+                        help = "Options for point2dem (mode 'dem_mosaic'). Pass "        + \
+                        "--errorimage to also mosaic the maximum triangulation error, "  + \
+                        "and --orthoimage (with no argument, the per-pair L.tif is "     + \
+                        "added automatically) to also mosaic an orthoimage (DRG), as "   + \
+                        "in stereo_dist. If both --tr and --t_srs are given here, they " + \
+                        "are used for all pairs; otherwise the grid and projection are " + \
                         "taken from the first DEM produced and applied to the rest.")
 
     parser.add_argument("--dem-mosaic-options", dest="dem_mosaic_options", default="",
@@ -178,12 +183,11 @@ def process_args(args):
                         "DEMs (mode 'dem_mosaic').")
 
     parser.add_argument("--conv-angle-prefix", dest="conv_angle_prefix", default="",
-                        help = "A bundle_adjust output prefix (mode 'dem_mosaic'). "    + \
-                        "The overlap list is built automatically from the convergence " + \
-                        "angle report <prefix>-convergence_angles.txt: each image pair "+ \
-                        "whose median convergence angle is within --conv-angle-range "  + \
-                        "is used, with the bundle-adjusted cameras "                    + \
-                        "<prefix>-<image>.tsai or .json. Set this and "                 + \
+                        help = "A bundle_adjust output prefix (mode 'dem_mosaic'). The "  + \
+                        "image pairs are read from the convergence angle report "         + \
+                        "<prefix>-convergence_angles.txt: each pair whose median "        + \
+                        "convergence angle is within --conv-angle-range is used. The "    + \
+                        "cameras come from --image-list and --camera-list. Set this and " + \
                         "--conv-angle-range instead of --overlap-list, not both.")
 
     parser.add_argument("--conv-angle-range", dest="conv_angle_range", default="",
@@ -220,6 +224,40 @@ def read_overlap_pairs(path, min_cols):
         raise Exception("No pairs were read from the overlap list: " + path)
 
     return pairs
+
+def read_list(path):
+    """Non-empty, non-comment lines from a list file."""
+    items = []
+    with open(path, 'r') as f:
+        for line in f:
+            line = line.split('#', 1)[0].strip()
+            if line != "":
+                items.append(line)
+    return items
+
+def read_image_camera_map(image_list, camera_list):
+    """Map each image to its camera, from two parallel lists (image i to camera i)."""
+    if image_list == "" or camera_list == "":
+        raise Exception("Mode 'dem_mosaic' needs --image-list and --camera-list.")
+    images  = read_list(image_list)
+    cameras = read_list(camera_list)
+    if len(images) != len(cameras):
+        raise Exception("The image and camera lists differ in length (" +
+                        str(len(images)) + " vs " + str(len(cameras)) + ").")
+    cam_of = {}
+    for (img, cam) in zip(images, cameras):
+        cam_of[img] = cam
+        cam_of.setdefault(os.path.basename(img), cam)
+    return cam_of
+
+def camera_for(cam_of, image):
+    """The camera for an image, matched by full name or basename."""
+    if image in cam_of:
+        return cam_of[image]
+    base = os.path.basename(image)
+    if base in cam_of:
+        return cam_of[base]
+    raise Exception("Image not found in --image-list: " + image)
 
 def gen_pairs(args, all_distorted_images):
     """
@@ -272,7 +310,7 @@ def sanity_checks(args):
         raise Exception("Must set --mode to 'mesh' or 'dem_mosaic'.")
 
     if args.out_prefix == "":
-        raise Exception("The output prefix was not specified (--out-prefix).")
+        raise Exception("The output prefix was not specified (--output-prefix).")
 
     # Mode 'mesh' always needs the overlap list. Mode 'dem_mosaic' needs either the
     # overlap list, or both --conv-angle-prefix and --conv-angle-range (to build the
@@ -289,6 +327,9 @@ def sanity_checks(args):
         raise Exception("The overlap list was not specified (--overlap-list). In mode "
                         "'dem_mosaic', --conv-angle-prefix and --conv-angle-range may "
                         "be used instead.")
+
+    if args.mode == "dem_mosaic" and (args.image_list == "" or args.camera_list == ""):
+        raise Exception("Mode 'dem_mosaic' needs --image-list and --camera-list.")
 
     # Resolve the default last step for the mode
     if args.last_step == "":
@@ -479,7 +520,7 @@ def stereo_pair_cmd(ps, args, pair, entry, stop, stereo_options, seed, extra):
     """
     (li, ri, lc, rc) = pair
     pre = os.path.join(pair_dir(args.out_prefix, li, ri), 'run')
-    cmd = [ps] + stereo_thread_options(args) + stereo_options + \
+    cmd = [ps] + stereo_thread_options(args) + stereo_options      + \
           ['--entry-point', str(entry), '--stop-point', str(stop)] + \
           extra + [li, ri, lc, rc, pre] + seed
     return shlex.join(cmd)
@@ -591,7 +632,7 @@ def dem_stage_dem(args, pairs, tool_base_dir):
     shared grid so the mosaic is clean. If both --tr and --t_srs are set in
     --point2dem-options, they are used for every pair. Otherwise the first pair sets the
     grid (its resolution and projection), and the rest reuse it. A projection can also
-    come from --ref-dem or --dem.
+    come from the seed DEM --dem.
     """
     print("Step 'dem': point2dem for each pair.")
     p2d = asp_rig_utils.find_tool(tool_base_dir, 'point2dem')
@@ -604,12 +645,10 @@ def dem_stage_dem(args, pairs, tool_base_dir):
     want_ortho = '--orthoimage' in opts
     opts = [o for o in opts if o != '--orthoimage']
 
-    # The projection can also come from the reference or seed DEM.
+    # The projection can also come from the seed DEM.
     proj = ""
-    if not have_srs:
-        srs_src = args.ref_dem if args.ref_dem != "" else args.seed_dem
-        if srs_src != "":
-            proj = gdal_proj4(srs_src)
+    if not have_srs and args.seed_dem != "":
+        proj = gdal_proj4(args.seed_dem)
 
     def p2d_cmd(pair, extra):
         (li, ri, lc, rc) = pair
@@ -714,8 +753,9 @@ def dem_stage_fuse(args, pairs, tool_base_dir):
     if len(pres) == 0:
         raise Exception("No per-pair DEMs were produced.")
 
-    if args.ref_dem != "":
-        pres = blunder_filter(pres, args.ref_dem, args.blunder_tol)
+    # Blunder filter against the seed DEM --dem, if given.
+    if args.seed_dem != "":
+        pres = blunder_filter(pres, args.seed_dem, args.blunder_tol)
 
     mos = args.out_prefix
     mosaic_opts = shlex.split(args.dem_mosaic_options.replace('\\', ' '))
@@ -741,26 +781,10 @@ def dem_stage_fuse(args, pairs, tool_base_dir):
     for o in outputs:
         print("Wrote: " + o)
 
-def conv_angle_camera(prefix, image):
-    """The bundle-adjusted camera for an image, as <prefix>-<image_stem>.tsai (pinhole)
-    or <prefix>-<image_stem>.json (CSM). The first that exists is used."""
-    stem = os.path.splitext(os.path.basename(image))[0]
-    for ext in ('.tsai', '.json'):
-        cam = prefix + "-" + stem + ext
-        if os.path.exists(cam):
-            return cam
-    raise Exception("Expected a bundle-adjusted camera " + prefix + "-" + stem +
-                    ".tsai or .json. With --conv-angle-prefix, bundle_adjust must "
-                    "have written standalone cameras. Otherwise use --overlap-list.")
-
-def build_conv_angle_pairs(args):
-    """
-    Build the list of stereo pairs from a bundle_adjust convergence angle report
-    (mode 'dem_mosaic'). Select the pairs whose median convergence angle is within
-    --conv-angle-range. The cameras are the bundle-adjusted cameras
-    <prefix>-<image_stem>.tsai. Return a list of (left_image, right_image,
-    left_camera, right_camera) tuples.
-    """
+def conv_angle_pairs(args):
+    """Image-name pairs whose median convergence angle is within --conv-angle-range,
+    from the bundle_adjust report <prefix>-convergence_angles.txt. Cameras are
+    resolved separately, from --image-list and --camera-list."""
     vals = args.conv_angle_range.split(',')
     if len(vals) != 2:
         raise Exception("--conv-angle-range must be two comma-separated values, no "
@@ -775,8 +799,7 @@ def build_conv_angle_pairs(args):
         raise Exception("Cannot find the convergence angle report: " + report +
                         ". It is written by bundle_adjust.")
 
-    # The report columns are: left_image right_image 25% 50% 75% num_matches.
-    # Select on the median (50th percentile) convergence angle.
+    # Columns: left_image right_image 25% 50% 75% num_matches. Select on the median.
     pairs = []
     total = 0
     with open(report, 'r') as f:
@@ -789,11 +812,8 @@ def build_conv_angle_pairs(args):
                 continue
             total += 1
             med = float(toks[3])
-            if med < lo or med > hi:
-                continue
-            (li, ri) = (toks[0], toks[1])
-            pairs.append((li, ri, conv_angle_camera(args.conv_angle_prefix, li),
-                          conv_angle_camera(args.conv_angle_prefix, ri)))
+            if lo <= med <= hi:
+                pairs.append((toks[0], toks[1]))
 
     print("Convergence angle range [" + str(lo) + ", " + str(hi) + "] deg: kept " +
           str(len(pairs)) + " of " + str(total) + " pair(s) from " + report + ".")
@@ -806,10 +826,13 @@ def run_dem_mosaic(args, tool_base_dir):
     step_dict = STEP_DICTS["dem_mosaic"]
     first = step_dict[args.first_step]
     last = step_dict[args.last_step]
+    cam_of = read_image_camera_map(args.image_list, args.camera_list)
     if args.overlap_list != "":
-        pairs = read_overlap_pairs(args.overlap_list, 4)
+        name_pairs = read_overlap_pairs(args.overlap_list, 2)
     else:
-        pairs = build_conv_angle_pairs(args)
+        name_pairs = conv_angle_pairs(args)
+    pairs = [(l, r, camera_for(cam_of, l), camera_for(cam_of, r))
+             for (l, r) in name_pairs]
     print("Mode 'dem_mosaic': " + str(len(pairs)) + " pair(s).")
     if first <= 0 and last >= 0:
         run_pooled_stereo(args, pairs, tool_base_dir)
@@ -844,7 +867,7 @@ if __name__ == "__main__":
     sensors = args.rig_sensor.split()
 
     # The shared asp_rig_utils.undistort_images() helper writes under args.out_dir, but
-    # this tool uses --out-prefix. Give the helper a derived undistortion directory.
+    # this tool uses --output-prefix. Give the helper a derived undistortion directory.
     args.out_dir = args.out_prefix + "-undist"
 
     # Read the images and camera poses

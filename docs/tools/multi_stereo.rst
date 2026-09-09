@@ -4,11 +4,12 @@ multi_stereo
 ------------
 
 The ``multi_stereo`` program runs pairwise stereo on many image pairs, given by a
-range of stereo convergence angles or an overlap list, and fuses the results.
+range of stereo convergence angles or an image overlap list, and fuses the results.
 
-Each tile of each stereo pair is a separate job, and these are run in parallel over
-a given number of nodes and processes per node. It is thus a generalization of
-``parallel_stereo`` (:numref:`parallel_stereo`).
+Each tile of each stereo pair is a separate job, and these are run in parallel
+over a given number of nodes (if ``--nodes-list`` is set) and processes per
+node. It is thus a generalization of ``parallel_stereo``
+(:numref:`parallel_stereo`).
 
 It works with every image and camera type ASP supports, and handles all
 ``parallel_stereo`` options (via ``--stereo-options``).
@@ -22,68 +23,84 @@ This program has two modes, set with ``--mode``:
   (:numref:`point2dem`) per pair, then a DEM mosaic with ``dem_mosaic``
   (:numref:`dem_mosaic`). It can also mosaic the maximum triangulation error (with
   ``dem_mosaic --max``) and an orthoimage (DRG) at the DEM resolution (with
-  ``dem_mosaic --first``); see ``--point2dem-options``. This works for raw images
-  (aerial frame cameras, :numref:`aerial_bathymetry`) or mapprojected images with a
-  seed DEM (satellite, for example TGO CaSSIS, :numref:`multi_stereo_dem_mosaic`).
+  ``dem_mosaic --first``). See ``--point2dem-options``. This works for raw images
+  (aerial frame cameras, :numref:`aerial_bathymetry`) or mapprojected images 
+  (for example TGO CaSSIS, :numref:`multi_stereo_dem_mosaic`).
 
 * ``mesh``: pairwise stereo, then ``pc_filter`` (:numref:`pc_filter`), then a fused
   mesh with ``voxblox_mesh`` (:numref:`voxblox_mesh`). The cameras come from a rig
   (:numref:`rig_calibrator`). This is for robot or Structure-from-Motion data, with no
-  datum. See the example below.
+  datum. See an example below.
 
 The image pairs are auto-determined from a convergence angle range
 (``--conv-angle-prefix`` and ``--conv-angle-range``, ``dem_mosaic`` mode), or read
 from an overlap list (``--overlap-list``). See :numref:`multi_stereo_command_line`.
 
-In both modes the per-tile work of all pairs is pooled into one job of width
-``--processes``, so the load is balanced across all pairs rather than draining one
-pair at a time. If the environment variable ``PBS_NODEFILE`` is set (as on a
-cluster), that pooled job is spread over those nodes, which requires a shared file
-system. The value of ``--threads`` sets the threads per pair.
+In both modes the per-tile work of all pairs are put in a single pool, with the
+number of processes per node and threads per pair given by ``--processes`` and
+``--threads``. The invocation on a cluster is as for ``parallel_stereo``
+(:numref:`pbs_slurm`).
 
 .. _multi_stereo_dem_mosaic:
 
 DEM mosaic example
-^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~
 
-In ``dem_mosaic`` mode, ``multi_stereo`` runs stereo on pairs of mapprojected images,
-makes a DEM for each pair, and mosaics them. This is how the CaSSIS pipeline builds a
-terrain model (:numref:`cassis`), but it works for any mapprojected images with
-cameras and a seed DEM.
+An example for aerial images is in :numref:`aerial_bathymetry`.
 
-Consider a set of images (here ISIS cubes) with cameras (here CSM ``.json`` cameras,
-:numref:`csm`), and a seed DEM ``seed.tif`` to mapproject onto (for CaSSIS a blurred
-CTX DEM). Mapproject every image at the same resolution (:numref:`mapproject`). The
-resolution should be near the native ground sample distance of the images (for CaSSIS
-about 4.59 m), not the coarser DEM resolution, as stereo correlates at that grid::
+The example below runs pairwise stereo with mapprojected images
+(:numref:`mapproj-example`), and creates a DEM mosaic, as for CaSSIS data
+(:numref:`cassis`). 
+
+Consider a set of images (here ISIS cubes) with cameras (here CSM ``.json``
+cameras, :numref:`csm`), and a DEM ``ref.tif`` to mapproject onto (for CaSSIS a
+blurred CTX DEM). 
+
+Set a local projection::
+
+    proj="+proj=stere +lat_0=18.4 +lon_0=77.5 +R=3396190 +units=m +no_defs"
+    
+Mapproject every image at the same resolution (:numref:`mapproject`), near the
+native ground sample distance (for CaSSIS about 4.59 m)::
 
     for f in image1 image2 image3; do
-      mapproject --tr 4.59 seed.tif $f.cub $f.json $f.map.tif
+      mapproject --tr 4.59 --t_srs "$proj" \
+        ref.tif $f.cub $f.json $f.map.tif
     done
 
-Build the overlap list. It has four columns per line: the left and right mapprojected
-images and their cameras. List the pairs that overlap enough for stereo (for a strip
-this is often each image with the next; for cross-track looks, each left image with
-the right images it overlaps)::
+List the mapprojected images in ``images.txt`` (one per line) and their cameras in
+``cameras.txt`` (in the same order). Then build the overlap list of pairs to run
+stereo on, two columns, the left and right image names as in ``images.txt``::
 
-    image1.map.tif image2.map.tif image1.json image2.json
-    image2.map.tif image3.map.tif image2.json image3.json
+    image1.map.tif image2.map.tif
+    image2.map.tif image3.map.tif
+
+Note that it is often easier to use the convergence angle list, as shown in
+:numref:`aerial_bathymetry`, while adjusting for the images being mapprojected.
+
+Set up the stereo and point2dem options::
+
+    stereoOpts="--alignment-method none
+                 --stereo-algorithm asp_mgm
+                 --subpixel-mode 9"
+
+    demOpts="--tr 18 --t_srs '$proj' --errorimage --orthoimage"
 
 Then run stereo and mosaic the DEMs. The DEM is gridded at a coarser resolution than
 the images (here 18 m)::
 
-    stereo_opts="--alignment-method none --stereo-algorithm asp_mgm --subpixel-mode 9"
-
-    multi_stereo                                                       \
-      --mode dem_mosaic                                                \
-      --overlap-list overlap.txt                                       \
-      --dem seed.tif                                                   \
-      --ref-dem ctx.tif                                                \
-      --processes 4                                                    \
-      --threads 2                                                      \
-      --stereo-options "$stereo_opts"                                  \
-      --point2dem-options "--tr 18 --errorimage --orthoimage"          \
-      --out-prefix stereo_out/run
+    multi_stereo                     \
+      --mode dem_mosaic              \
+      --image-list images.txt        \
+      --camera-list cameras.txt      \
+      --overlap-list overlap.txt     \
+      --dem ref.tif                  \
+      --nodes-list machines.txt      \
+      --processes 4                  \
+      --threads 2                    \
+      --stereo-options "$stereoOpts" \
+      --point2dem-options "$demOpts" \
+      --output-prefix stereo_out/run
 
 This writes ``stereo_out/run-DEM.tif``. The output names follow ``point2dem``: the
 output prefix plus ``-DEM.tif``. As in ``stereo_dist`` (:numref:`stereo_dist`), two
@@ -97,6 +114,8 @@ optional products are added by passing the corresponding flag in
   also writes ``stereo_out/run-DRG.tif``, the orthoimage, combined with
   ``dem_mosaic --first`` (the first valid pixel, to avoid smearing seams).
 
+Set the option ``--nodes-list`` to run on multiple machines (:numref:`pbs_slurm`).
+
 The seed DEM (``--dem``) is the one the images were mapprojected onto. It is passed to
 ``parallel_stereo`` as the input DEM for mapprojected stereo. The three steps are
 ``stereo``, ``dem``, and ``fuse`` (see ``--first-step`` and ``--last-step``).
@@ -104,15 +123,14 @@ The seed DEM (``--dem``) is the one the images were mapprojected onto. It is pas
 Every per-pair ``point2dem`` must land on the same grid, so the DEMs mosaic cleanly.
 If both ``--tr`` and ``--t_srs`` are given in ``--point2dem-options``, they are used
 for all pairs. Otherwise the first pair sets the grid (its resolution and projection)
-and the rest reuse it. The projection can also come from ``--ref-dem`` or ``--dem``.
+and the rest reuse it. The projection can also come from the seed DEM ``--dem``.
 
-If ``--ref-dem`` is set (for example a sharp CTX DEM), a per-pair DEM is dropped from
-the mosaic when its mean elevation departs from the reference over the same footprint
-by more than ``--blunder-tol`` (in meters). This removes stereo blunders while keeping
-real terrain.
+A per-pair DEM is dropped from the mosaic when its mean elevation departs from the
+seed DEM (``--dem``) over the same footprint by more than ``--blunder-tol`` (in
+meters). This removes stereo blunders while keeping real terrain.
 
 Mesh example
-^^^^^^^^^^^^
+~~~~~~~~~~~~
 
 Here we will create a mesh of a small portion of the International
 Space Station (ISS), based on images acquired with the `Astrobee
@@ -139,7 +157,7 @@ pairs of images created with a stereo rig onboard the MSL Curiosity
 rover.
 
 Creation of camera models
-~~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
 We follow the approach in :numref:`rig_calibrator`, but with a rig
 consisting of just one camera.
@@ -181,7 +199,7 @@ order to fit precisely the measurements; a single best-fit similarity
 transform will be applied to the whole setup.
 
 Running stereo and mesh creation
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 As mentioned earlier, the geometry of the scene being imaged requires
 some careful choices of parameters for stereo.  Then, this tool calls
@@ -190,7 +208,7 @@ as well. Here's a recipe which works reasonably well::
 
     maxDistanceFromCamera=3.0
 
-    stereo_opts="
+    stereoOpts="
       --stereo-algorithm asp_mgm
       --alignment-method affineepipolar
       --ip-per-image 10000
@@ -223,10 +241,10 @@ as well. Here's a recipe which works reasonably well::
       --rig-sensor nav_cam                  \
       --first-step stereo                   \
       --last-step  mesh_gen                 \
-      --stereo-options "$stereo_opts"       \
+      --stereo-options "$stereoOpts"        \
       --pc-filter-options "$pc_filter_opts" \
       --mesh-gen-options "$mesh_gen_opts"   \
-      --out-prefix stereo_out/run
+      --output-prefix stereo_out/run
 
 The overlap list has one image pair per line, with two columns, giving the left and
 right image names as in ``--camera-poses``::
@@ -270,7 +288,7 @@ See ``--first-step`` and ``--last-step`` in
 steps to run.
 
 Creating a textured mesh
-~~~~~~~~~~~~~~~~~~~~~~~~
+^^^^^^^^^^^^^^^^^^^^^^^^
 
 The obtained mesh can be post-processed (smoothed, hole-filled, etc.)
 using a handful of CGAL-based tools shipped with ASP
@@ -312,7 +330,7 @@ region (``--undistorted-crop-win``) or redo the bundle adjustment with
 .. _multi_stereo_command_line:
 
 Command-line options for multi_stereo
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 --mode <string (default: "")>
     Processing mode. One of: ``mesh`` (pairwise stereo, ``pc_filter``, then a
@@ -327,7 +345,7 @@ Command-line options for multi_stereo
     ``#`` and blank lines are ignored. Required, unless in mode ``dem_mosaic``
     the pairs are determined automatically with ``--conv-angle-prefix`` (see
     below).
---out-prefix <string (default: "")>
+--output-prefix <string (default: "")>
     The output prefix, as for parallel_stereo and stereo_dist. The DEM mosaic,
     mesh, per-pair stereo data, and other outputs are named starting with this
     prefix (for example <prefix>-DEM.tif, <prefix>-fused_mesh.ply).
@@ -382,17 +400,13 @@ Options for mode ``dem_mosaic``:
 
 --dem <string (default: "")>
     Seed DEM. For mapprojected input images this is the DEM they were
-    mapprojected onto. It is appended as the trailing positional argument to
-    ``parallel_stereo``.
---ref-dem <string (default: "")>
-    Reference DEM, for example a sharp CTX DEM. If set, a per-pair DEM is dropped
-    from the mosaic when its mean elevation departs from the reference over the
-    same footprint by more than ``--blunder-tol``. Also used to set the output
-    projection if it is not otherwise given.
+    mapprojected onto, appended as the trailing positional argument to
+    ``parallel_stereo``. It is also the blunder-filter reference, and sets the
+    output projection if it is not otherwise given.
 --blunder-tol <double (default: 500)>
-    Blunder filter tolerance, in meters (needs ``--ref-dem``). A per-pair DEM
-    whose mean elevation departs from the reference over its footprint by more
-    than this is dropped.
+    Blunder filter tolerance, in meters (needs ``--dem``). A per-pair DEM whose
+    mean elevation departs from the seed DEM (``--dem``) over its footprint by
+    more than this is dropped.
 --point2dem-options <string (default: "")>
     Options for ``point2dem``. Pass ``--errorimage`` to also mosaic the maximum
     triangulation error, and ``--orthoimage`` (with no argument, the per-pair

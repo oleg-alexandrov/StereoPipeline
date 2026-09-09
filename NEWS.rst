@@ -6,15 +6,14 @@ New features:
     (:numref:`cassis`).
   * Support the SPOT 1, 2, 3, and 4 HRV linescan cameras (:numref:`spot14`).
   * Added an example for bathymetry with aerial images (:numref:`aerial_bathymetry`).
-  * Added the AKAZE, BRISK, and KAZE interest point detection methods to
-    ``parallel_stereo``, ``bundle_adjust``, etc. (:numref:`stereodefault`).
-  * Added a program for multi-view stereo that does pairwise stereo with load
-    balancing and DEM merge (each job is a tile in a stereo run). (This expanded
-    a stub placeholder.) See :numref:`multi_stereo`.
+  * Added a program for load-balanced multi-pair stereo and DEM merge
+    (:numref:`multi_stereo`).
   * Added an example for Viking Orbiter (:numref:`viking`).
   * Added an example for the Clementine NIR camera (:numref:`clementine`).
   * Added ``glint_correct``, to remove sun glint from a visible band for
     shallow-water bathymetry (:numref:`glint_correct`).
+  * Added the AKAZE, BRISK, and KAZE interest point detection methods to
+    ``parallel_stereo``, ``bundle_adjust``, etc. (:numref:`stereodefault`).
 
 bundle_adjust (:numref:`bundle_adjust`):
   * Added ``--gcp-robust-threshold``, to apply a robust cost function to the

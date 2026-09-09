@@ -235,10 +235,11 @@ robustness of local-epipolar alignment.
 A generous ``--ip-per-tile`` gives the per-tile local alignment enough interest
 points on these long, narrow strips, so few tiles are left unmatched.
 
-See :numref:`pbs_slurm` for running on multiple nodes. 
+See :numref:`pbs_slurm` for running on multiple nodes. See :numref:`nextsteps`
+for the various correlation and subpixel algorithms available. 
 
-Make the DEM at 1 m, with the orthoimage and triangulation error
-(:numref:`point2dem`)::
+Make the DEM at 1 m (4x image resolution), with the orthoimage and triangulation
+error (:numref:`point2dem`)::
 
     point2dem --tr 1.0 --errorimage --orthoimage \
       stereo/run-PC.tif stereo/run-L.tif
@@ -676,10 +677,12 @@ Run each pair such as::
       ba/run-nadir.adjusted_state.json    \
       stereo_fn/run
 
-See :numref:`pbs_slurm` for running on multiple nodes.
+See :numref:`pbs_slurm` for running on multiple nodes. See :numref:`nextsteps`
+for the various correlation and subpixel algorithms available. 
 
-Produce a DEM at 20 m per pixel (about 4x the input GSD, :numref:`post-spacing`),
-with the triangulation error image (:numref:`point2dem_ortho_err`)::
+Run :ref:`point2dem` to produce a DEM at 20 m per pixel (about 4x the input GSD,
+:numref:`post-spacing`), and to create the triangulation error image
+(:numref:`point2dem_ortho_err`)::
 
     point2dem --tr 20      \
       --t_srs "$proj"      \

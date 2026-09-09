@@ -14,7 +14,7 @@ resulting `CaSSIS pipeline
 <https://github.com/NeoGeographyToolkit/CassisPipeline>`_ that allows
 reproducible, end-to-end processing is made public, together with sample data.
 
-This requires a recent build of ASP, from 2026/7 or later (:numref:`release`),
+This requires a recent build of ASP, from 2026/09/10 or later (:numref:`release`),
 which has the CaSSIS camera support.
 
 .. _cassis_vendor:
@@ -213,7 +213,7 @@ is also available, that has the input CaSSIS data, the reference CTX DEM, the
 distortion-refitted, bundle-adjusted and aligned cameras that are ready for
 stereo, and the output DEM and triangulation error mosaics.
 
-All of this needs a recent ASP build, from 2026/7 or later (:numref:`release`).
+All of this needs a recent ASP build, from 2026/09/10 or later (:numref:`release`).
 
 .. _cassis_compute:
 

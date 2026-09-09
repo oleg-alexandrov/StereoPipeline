@@ -201,7 +201,7 @@ a mesh. Some parameters are set up first.
 
 Stereo options (:numref:`stereodefault`)::
 
-    stereo_opts="
+    stereoOpts="
       --stereo-algorithm asp_mgm
       --alignment-method affineepipolar
       --ip-per-image 10000
@@ -230,36 +230,41 @@ Mesh generation options (:numref:`voxblox_mesh`)::
       --max_ray_length $maxDistanceFromCamera
       --voxel_size 0.05"
 
-Set up the pairs to run stereo on::
+Set up the stereo pairs. The rig takes a left-nav (``lnav``) and a right-nav
+(``rnav``) image at each timestamp, so pair each ``lnav`` image with the ``rnav``
+image from the same timestamp::
 
     outDir=stereo
     mkdir -p ${outDir}
     grep lnav list.txt > ${outDir}/left.txt
     grep rnav list.txt > ${outDir}/right.txt
+    paste ${outDir}/left.txt ${outDir}/right.txt > ${outDir}/overlap.txt
 
-The optimized rig, in ``rig_out/rig_config.txt``, and optimized
-cameras, in ``rig_out/cameras.txt``, are passed to ``multi_stereo``
+The overlap list has one pair per line, two columns, the left and right image names
+as in ``--camera-poses``. The optimized rig, in ``rig_out/rig_config.txt``, and
+optimized cameras, in ``rig_out/cameras.txt``, are passed to ``multi_stereo``
 (:numref:`multi_stereo`)::
 
-    multi_stereo                              \
-      --rig-config rig_out/rig_config.txt     \
-      --camera-poses rig_out/cameras.txt      \
-      --undistorted-crop-win '1100 1100'      \
-      --rig-sensor "lnav rnav"                \
-      --first-step stereo                     \
-      --last-step mesh_gen                    \
-      --stereo-options "$stereo_opts"         \
-      --pc-filter-options "$pc_filter_opts"   \
-      --mesh-gen-options "$mesh_gen_opts"     \
-      --left ${outDir}/left.txt               \
-      --right ${outDir}/right.txt             \
-      --out-prefix ${outDir}
+    multi_stereo                            \
+      --mode mesh                           \
+      --rig-config rig_out/rig_config.txt   \
+      --camera-poses rig_out/cameras.txt    \
+      --overlap-list ${outDir}/overlap.txt  \
+      --undistorted-crop-win '1100 1100'    \
+      --rig-sensor "lnav rnav"              \
+      --first-step stereo                   \
+      --last-step mesh_gen                  \
+      --stereo-options "$stereoOpts"        \
+      --pc-filter-options "$pc_filter_opts" \
+      --mesh-gen-options "$mesh_gen_opts"   \
+      --output-prefix ${outDir}/run
 
-This created::
+This created the fused mesh::
 
-    ${outDir}/lnav_rnav/fused_mesh.ply
+    ${outDir}/run-fused_mesh.ply
 
-See the produced mesh in :numref:`rig_msl_figure`.
+with the per-pair stereo outputs under ``${outDir}/run-pairs/``. See the produced
+mesh in :numref:`rig_msl_figure`.
 
 .. _msl_registration:
 
