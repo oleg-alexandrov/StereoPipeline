@@ -843,6 +843,10 @@ if __name__ == "__main__":
     step_dict = STEP_DICTS["mesh"]
     sensors = args.rig_sensor.split()
 
+    # The shared asp_rig_utils.undistort_images() helper writes under args.out_dir, but
+    # this tool uses --out-prefix. Give the helper a derived undistortion directory.
+    args.out_dir = args.out_prefix + "-undist"
+
     # Read the images and camera poses
     # TODO(oalexan1): Make the block below a function
     all_distorted_images = []

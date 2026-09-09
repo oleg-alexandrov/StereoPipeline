@@ -184,7 +184,7 @@ def run_texrecon(tools_base_dir, undistorted_images, cams, mesh,
            "--keep_unseen_faces",
            # TODO(oalexan1): Need to understand why texrecon insists on an equal sign
            # for the option below while it does not need that for other options.
-           "--max-texture-size=" + str(args.max_texture_size)]
+           "--max_texture_size=" + str(args.max_texture_size)]
 
     if skip_local_seam_leveling:
         cmd += ['--skip_local_seam_leveling']
