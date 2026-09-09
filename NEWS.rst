@@ -14,6 +14,9 @@ New features:
     shallow-water bathymetry (:numref:`glint_correct`).
   * Added the AKAZE, BRISK, and KAZE interest point detection methods to
     ``parallel_stereo``, ``bundle_adjust``, etc. (:numref:`stereodefault`).
+  * ``dg_mosaic``: support the newer namespaced Maxar/Vantor ISD metadata XML
+    (tags with the ``isdc:`` prefix), so multi-part deliveries in this format
+    can be mosaicked (:numref:`dg_mosaic`).
 
 bundle_adjust (:numref:`bundle_adjust`):
   * Added ``--gcp-robust-threshold``, to apply a robust cost function to the

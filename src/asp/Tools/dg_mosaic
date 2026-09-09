@@ -62,6 +62,21 @@ except ImportError:
     # python 2.4
     import elementtree.ElementTree as ET
 
+def strip_ns(root):
+    # Strip XML namespaces in-place so that .find("IMD"), .find("IMAGE"), etc.
+    # work on both the classic DigitalGlobe XML and the newer namespaced
+    # Vantor/Maxar ISD XML (tags like isdc:IMD, expanded by ElementTree to
+    # {namespace-uri}IMD). The C++ readers (XMLBase.cc) already handle this form;
+    # this mirrors that so dg_mosaic can ingest the newer deliveries too.
+    for el in root.iter():
+        t = el.tag
+        if isinstance(t, str):
+            if '}' in t:
+                el.tag = t.split('}', 1)[1]
+            elif ':' in t:
+                el.tag = t.split(':', 1)[1]
+    return root
+
 if hasattr(datetime, 'strptime'):
     def parse_time(date_string, fmt):
         return datetime.strptime(date_string, fmt)
@@ -390,6 +405,7 @@ def read_xml(filename, options, xml_keys):
 
     tree = ET.parse(filename)
     root = tree.getroot()
+    strip_ns(root)
     IMD  = root.find("IMD")
     GEO  = root.find("GEO")
     EPH  = root.find("EPH")
@@ -530,6 +546,7 @@ def estimate_ground_resolution( xml_tree ):
 
     # Retrieve the image size and the four corners from the XML file
     root = xml_tree.getroot()
+    strip_ns(root)
     imd  = root.find("IMD")
     num_cols = float(imd.find("NUMCOLUMNS").text)
     num_rows = float(imd.find("NUMROWS").text)
@@ -898,6 +915,7 @@ def main():
         # the original resolution and then we scale it.
         tree = ET.parse(xml_name(args[0]))
         root = tree.getroot()
+        strip_ns(root)
         imd = root.find("IMD")
         imd.find("NUMROWS").text = str(int(boundary.height()))
         imd.find("NUMCOLUMNS").text = str(int(boundary.width()))
