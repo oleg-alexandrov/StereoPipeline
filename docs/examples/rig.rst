@@ -148,12 +148,12 @@ fusing the images for each sensor with ``texrecon``
 (:numref:`texrecon`)::
 
     for cam in nav_cam sci_cam; do 
-      texrecon --rig_config rig_out/rig_config.txt \
-        --camera_poses rig_out/cameras.txt         \
+      texrecon --rig-config rig_out/rig_config.txt \
+        --camera-poses rig_out/cameras.txt         \
         --mesh rig_out/fused_mesh.ply              \
-        --rig_sensor ${cam}                        \
-        --undistorted_crop_win '1000 800'          \
-        --out_dir rig_out/texture
+        --rig-sensor ${cam}                        \
+        --undistorted-crop-win '1000 800'          \
+        --out-dir rig_out/texture
     done
 
 The obtained textured meshes can be inspected for disagreements, by

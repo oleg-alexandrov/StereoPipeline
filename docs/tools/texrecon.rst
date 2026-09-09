@@ -25,12 +25,12 @@ co-registered using the ``rig_calibrator`` program
 
 With that data and this tool, a textured mesh can be obtained as follows::
 
-    texrecon --rig_config rig_out/rig_config.txt \
-      --camera_poses rig_out/cameras.txt         \
+    texrecon --rig-config rig_out/rig_config.txt \
+      --camera-poses rig_out/cameras.txt         \
       --mesh rig_out/fused_mesh.ply              \
-      --rig_sensor sci_cam                       \
-      --undistorted_crop_win '1000 800'          \
-      --out_dir texrecon_out
+      --rig-sensor sci_cam                       \
+      --undistorted-crop-win '1000 800'          \
+      --out-dir texrecon_out
 
 The inputs to this program need not be created with
 ``rig_calibrator``. What is important is that the camera poses and the
@@ -39,36 +39,36 @@ mesh be co-registered.
 Command-line options
 ^^^^^^^^^^^^^^^^^^^^
 
---rig_config <string>
+--rig-config <string>
    Rig configuration file.
---rig_sensor <string>
+--rig-sensor <string>
    Which rig sensor images to texture. Can be more than one (bound by
    quotes then). Must be among the sensors specified via
-   ``--rig_config``.
---camera_poses <string>
+   ``--rig-config``.
+--camera-poses <string>
    Read images and camera poses from this list.
 --mesh <string>
    The mesh to use for texturing, in .ply format.
 --subset <string> 
    Use only the subset of images from this list.
---undistorted_crop_win <string>
+--undistorted-crop-win <string>
    The dimensions of the central image region to keep
    after undistorting an image and before using it in texturing.
    Normally 85% - 90% of distorted (actual) image
    dimensions would do. Suggested for Astrobee images: sci_cam: '1250
    1000' nav_cam: '1100 776'. haz_cam: '250 200'.
---max_texture_size <int>
+--max-texture-size <int>
    The maximum size (in pixels) of each texture file created for the
    produced textured mesh.
---out_dir <string>
+--out-dir <string>
    The directory where to write the textured mesh and
    other data.
---texture_alg <string> 
+--texture-alg <string> 
    Use one of the two texture creation modes: 'center' (for a surface
    patch choose the image in which the patch shows up closer to the
    image center; this is the default), or 'area' (for a surface patch
    choose the image whose camera view direction is most aligned with the
    surface normal).
---skip_local_seam_leveling
+--skip-local-seam-leveling
    If set, skip a postprocessing algorithm which may remove some seams
    but which on occasion can cause a crash.

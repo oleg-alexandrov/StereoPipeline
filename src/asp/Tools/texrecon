@@ -41,16 +41,16 @@ def process_args(args):
 
     parser = argparse.ArgumentParser(description = "Parameters for texrecon.")
     
-    parser.add_argument("--rig_config",  dest="rig_config", default="",
+    parser.add_argument("--rig-config",  dest="rig_config", default="",
                         help = "Rig configuration file.")
     
-    parser.add_argument("--rig_sensor", dest="rig_sensor", default="",
+    parser.add_argument("--rig-sensor", dest="rig_sensor", default="",
                         help="Which rig sensor images to texture. Must be among the " + \
-                        "sensors specified via --rig_config. To use images from " +
+                        "sensors specified via --rig-config. To use images from " +
                         "several sensors, pass in a quoted list of them, " + \
                         "separated by a space.")
 
-    parser.add_argument("--camera_poses", dest="camera_poses",
+    parser.add_argument("--camera-poses", dest="camera_poses",
                         default="", help= "Read images and camera poses from this list.")
 
     parser.add_argument("--subset", dest="subset",
@@ -59,22 +59,22 @@ def process_args(args):
     parser.add_argument("--mesh", dest="mesh",
                         default="", help="The mesh to use for texturing, in .ply format.")
 
-    parser.add_argument("--max_texture_size", dest="max_texture_size",
+    parser.add_argument("--max-texture-size", dest="max_texture_size",
                         default="2048",
                         help="The maximum size (in pixels) of each texture file " + \
                         "created for the produced textured mesh.")
 
-    parser.add_argument("--texture_alg", dest="texture_alg",
+    parser.add_argument("--texture-alg", dest="texture_alg",
                         default="center", help= "Use one of the two texture creation modes: 'center' (for a surface patch choose the image in which the patch shows up closer to the image center), 'area' (for a surface patch choose the image whose camera view direction is most aligned with the surface normal).")
-    parser.add_argument('--skip_local_seam_leveling', dest = "skip_local_seam_leveling",
+    parser.add_argument('--skip-local-seam-leveling', dest = "skip_local_seam_leveling",
                         action='store_true')
     
-    parser.add_argument("--out_dir", dest="out_dir",
+    parser.add_argument("--out-dir", dest="out_dir",
                         default="", help="The directory where to write the textured mesh " + \
                         "and other data.")
     
     # Note how the percent sign below is escaped, by writing: %%
-    parser.add_argument("--undistorted_crop_win", dest="undistorted_crop_win", default = "",
+    parser.add_argument("--undistorted-crop-win", dest="undistorted_crop_win", default = "",
                         help = "The dimensions of the central image region to keep after "   + \
                         "undistorting an image and before using it in texturing. Normally "  + \
                         "85%% - 90%% of distorted (actual) image dimensions would do. "      + \
@@ -184,7 +184,7 @@ def run_texrecon(tools_base_dir, undistorted_images, cams, mesh,
            "--keep_unseen_faces",
            # TODO(oalexan1): Need to understand why texrecon insists on an equal sign
            # for the option below while it does not need that for other options.
-           "--max_texture_size=" + str(args.max_texture_size)]
+           "--max-texture-size=" + str(args.max_texture_size)]
 
     if skip_local_seam_leveling:
         cmd += ['--skip_local_seam_leveling']

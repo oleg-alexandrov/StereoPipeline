@@ -11,7 +11,7 @@ a given number of nodes and processes per node. It is thus a generalization of
 ``parallel_stereo`` (:numref:`parallel_stereo`).
 
 It works with every image and camera type ASP supports, and handles all
-``parallel_stereo`` options (via ``--stereo_options``).
+``parallel_stereo`` options (via ``--stereo-options``).
 
 DEM vs mesh mode
 ~~~~~~~~~~~~~~~~
@@ -81,7 +81,7 @@ the images (here 18 m)::
       --ref-dem ctx.tif                                                \
       --processes 4                                                    \
       --threads 2                                                      \
-      --stereo_options "$stereo_opts"                                  \
+      --stereo-options "$stereo_opts"                                  \
       --point2dem-options "--tr 18 --errorimage --orthoimage"          \
       --out-prefix stereo_out/run
 
@@ -99,7 +99,7 @@ optional products are added by passing the corresponding flag in
 
 The seed DEM (``--dem``) is the one the images were mapprojected onto. It is passed to
 ``parallel_stereo`` as the input DEM for mapprojected stereo. The three steps are
-``stereo``, ``dem``, and ``fuse`` (see ``--first_step`` and ``--last_step``).
+``stereo``, ``dem``, and ``fuse`` (see ``--first-step`` and ``--last-step``).
 
 Every per-pair ``point2dem`` must land on the same grid, so the DEMs mosaic cleanly.
 If both ``--tr`` and ``--t_srs`` are given in ``--point2dem-options``, they are used
@@ -216,20 +216,20 @@ as well. Here's a recipe which works reasonably well::
 
     multi_stereo                            \
       --mode mesh                           \
-      --rig_config rig_out/rig_config.txt   \
-      --camera_poses rig_out/cameras.txt    \
+      --rig-config rig_out/rig_config.txt   \
+      --camera-poses rig_out/cameras.txt    \
       --overlap-list overlap.txt            \
-      --undistorted_crop_win '1100 700'     \
-      --rig_sensor nav_cam                  \
-      --first_step stereo                   \
-      --last_step  mesh_gen                 \
-      --stereo_options "$stereo_opts"       \
-      --pc_filter_options "$pc_filter_opts" \
-      --mesh_gen_options "$mesh_gen_opts"   \
+      --undistorted-crop-win '1100 700'     \
+      --rig-sensor nav_cam                  \
+      --first-step stereo                   \
+      --last-step  mesh_gen                 \
+      --stereo-options "$stereo_opts"       \
+      --pc-filter-options "$pc_filter_opts" \
+      --mesh-gen-options "$mesh_gen_opts"   \
       --out-prefix stereo_out/run
 
 The overlap list has one image pair per line, with two columns, giving the left and
-right image names as in ``--camera_poses``::
+right image names as in ``--camera-poses``::
 
     image1.tif image2.tif
     image2.tif image3.tif
@@ -265,7 +265,7 @@ There are three steps happening above, namely:
 The images are undistorted internally before stereo is run. (The
 undistortion step may be optional in future versions.)
 
-See ``--first_step`` and ``--last_step`` in
+See ``--first-step`` and ``--last-step`` in
 :numref:`multi_stereo_command_line` for how to choose which processing
 steps to run.
 
@@ -277,12 +277,12 @@ using a handful of CGAL-based tools shipped with ASP
 (:numref:`cgal_tools`).  Then, it can be textured with the original
 images using the ``texrecon`` tool (:numref:`texrecon`) as::
 
-    texrecon --rig_config rig_out/rig_config.txt \
-      --camera_poses rig_out/cameras.txt         \
+    texrecon --rig-config rig_out/rig_config.txt \
+      --camera-poses rig_out/cameras.txt         \
       --mesh stereo_out/run-fused_mesh.ply       \
-      --rig_sensor nav_cam                       \
-      --undistorted_crop_win '1100 700'          \
-      --out_dir stereo_out
+      --rig-sensor nav_cam                       \
+      --undistorted-crop-win '1100 700'          \
+      --out-dir stereo_out
 
 This produces ``stereo_out/nav_cam/texture.obj``.
 
@@ -306,7 +306,7 @@ each filtered point cloud (fourth band, extractable with
 
 One may need to decrease the value of
 ``--max-valid-triangulation-error``, use less of the boundary image
-region (``--undistorted_crop_win``) or redo the bundle adjustment with
+region (``--undistorted-crop-win``) or redo the bundle adjustment with
 ``rig_calibrator``.
 
 .. _multi_stereo_command_line:
@@ -322,7 +322,7 @@ Command-line options for multi_stereo
 --overlap-list <string (default: "")>
     Text file with the image pairs to run stereo on, one pair per line. For
     mode ``mesh``: two columns, ``left_image right_image``, with names as in
-    ``--camera_poses``. For mode ``dem_mosaic``: four columns,
+    ``--camera-poses``. For mode ``dem_mosaic``: four columns,
     ``left_image right_image left_camera right_camera``. Lines starting with
     ``#`` and blank lines are ignored. Required, unless in mode ``dem_mosaic``
     the pairs are determined automatically with ``--conv-angle-prefix`` (see
@@ -331,7 +331,7 @@ Command-line options for multi_stereo
     The output prefix, as for parallel_stereo and stereo_dist. The DEM mosaic,
     mesh, per-pair stereo data, and other outputs are named starting with this
     prefix (for example <prefix>-DEM.tif, <prefix>-fused_mesh.ply).
---stereo_options <string (default: "")>
+--stereo-options <string (default: "")>
     Options to pass to ``parallel_stereo``. Use double quotes
     around the full list and simple quotes if needed by an
     individual option, or vice-versa.
@@ -347,35 +347,35 @@ Command-line options for multi_stereo
     A file with the computing nodes, one per line, over which to spread the pooled
     stereo jobs, as for ``parallel_stereo`` and ``stereo_dist``. The nodes must share
     a file system. Default: the value of ``$PBS_NODEFILE``, if set.
---first_step <string (default: "stereo")>
+--first-step <string (default: "stereo")>
     Let the first step run by this tool be, for mode ``mesh``: ``stereo``,
     ``pc_filter``, or ``mesh_gen``; for mode ``dem_mosaic``: ``stereo``,
     ``dem``, or ``fuse``. This allows resuming a run at a desired step.
---last_step <string (default: "")>
-    The last step run by this tool. See ``--first_step`` for allowed values.
+--last-step <string (default: "")>
+    The last step run by this tool. See ``--first-step`` for allowed values.
     Default: the last step of the mode.
 
 Options for mode ``mesh``:
 
---rig_config <string (default: "")>
+--rig-config <string (default: "")>
     Rig configuration file.
---rig_sensor <string (default: "")>
+--rig-sensor <string (default: "")>
     Which rig sensor images to use. Must be among the
-    sensors specified via ``--rig_config``.  To use images from
+    sensors specified via ``--rig-config``.  To use images from
     several sensors, pass in a quoted list of them, separated by a
     space.
---camera_poses <string (default: "")>
+--camera-poses <string (default: "")>
     Read images and camera poses for this sensor from this
     list.
---undistorted_crop_win <string (default: "")>
+--undistorted-crop-win <string (default: "")>
     The dimensions of the central image region to keep
     after the internal undistortion step and before using it in
     stereo. Normally 85% - 90% of distorted (actual)
     image dimensions would do. Suggested the Astrobee images:
     sci_cam: '1250 1000' nav_cam: '1100 776'. haz_cam: '250 200'.
---pc_filter_options <string (default: "")>
+--pc-filter-options <string (default: "")>
     Options to pass to ``pc_filter``.
---mesh_gen_options <string (default: "")>
+--mesh-gen-options <string (default: "")>
     Options to pass to ``voxblox_mesh`` for mesh generation.
 
 Options for mode ``dem_mosaic``:

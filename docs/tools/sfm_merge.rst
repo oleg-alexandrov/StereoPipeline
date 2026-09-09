@@ -36,7 +36,7 @@ Example
 
 ::
 
-    sfm_merge --rig_config rig_config.txt   \
+    sfm_merge --rig-config rig_config.txt   \
       --num_image_overlaps_at_endpoints 100 \
       map1.nvm map2.nvm -output_map merged.nvm
 
@@ -74,7 +74,7 @@ one. These features may be added in future versions.
 Command-line options for sfm_merge
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
---rig_config <string (default: "")>
+--rig-config <string (default: "")>
   Read the configuration of sensors from this file in the format used for 
   ``rig_calibrator`` (this tool does not use the rig structure). The
   output of this program can be passed back to ``rig_calibrator``

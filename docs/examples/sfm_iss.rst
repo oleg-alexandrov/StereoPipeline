@@ -437,13 +437,13 @@ Create the ``nav_cam`` texture with ``texrecon``
 
     sensor="bumble_nav haz queen_nav"
     texrecon                              \
-    --rig_config small_rig/rig_config.txt \
-    --camera_poses small_rig/cameras.txt  \
+    --rig-config small_rig/rig_config.txt \
+    --camera-poses small_rig/cameras.txt  \
     --mesh small_rig/fused_mesh.ply       \
-    --rig_sensor "${sensor}"              \
-    --undistorted_crop_win '1300 1200'    \
-    --skip_local_seam_leveling            \
-    --out_dir small_rig
+    --rig-sensor "${sensor}"              \
+    --undistorted-crop-win '1300 1200'    \
+    --skip-local-seam-leveling            \
+    --out-dir small_rig
 
 The same can be done for ``haz_cam``. Then reduce the undistorted crop
 window to '250 200'. It is helpful to open these together in
@@ -501,13 +501,13 @@ The texturing command is::
 
     sensor="bumble_sci queen_sci"
     texrecon                                    \
-      --rig_config small_sci_rig/rig_config.txt \
-      --camera_poses small_sci_rig/cameras.txt  \
+      --rig-config small_sci_rig/rig_config.txt \
+      --camera-poses small_sci_rig/cameras.txt  \
       --mesh small_rig/fused_mesh.ply           \
-      --rig_sensor "${sensor}"                  \
-      --undistorted_crop_win '1300 1200'        \
-      --skip_local_seam_leveling                \
-      --out_dir small_sci_rig
+      --rig-sensor "${sensor}"                  \
+      --undistorted-crop-win '1300 1200'        \
+      --skip-local-seam-leveling                \
+      --out-dir small_sci_rig
 
 Notice how we used the rig configuration and poses from
 ``small_sci_rig`` but with the earlier mesh from ``small_rig``. The
@@ -548,7 +548,7 @@ overlaps, unless one has under 500 images or so.
 The obtained .nvm files can be merged with ``sfm_merge``
 (:numref:`sfm_merge`) as::
 
-    sfm_merge --fast_merge --rig_config small_rig/rig_config.txt \
+    sfm_merge --fast_merge --rig-config small_rig/rig_config.txt \
       theia*/cameras.nvm --output_map merged.nvm
 
 Then, given the large merged map, one can continue as earlier in the
@@ -573,7 +573,7 @@ Consider experimenting with the ``--median_filter``,
 ``voxblox_mesh`` (:numref:`voxblox_mesh`).
 
 Some experimentation can be done with the two ways of creating
-textures given by the ``texrecon`` option ``--texture_alg``
+textures given by the ``texrecon`` option ``--texture-alg``
 (:numref:`texrecon`). The default method, named "center", uses the
 most central area of each image, so, if there are any seams when the
 the camera is panning, they will be when transitioning from a surface

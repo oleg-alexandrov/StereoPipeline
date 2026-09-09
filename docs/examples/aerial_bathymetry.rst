@@ -230,7 +230,7 @@ the pairs directly instead, use ``--overlap-list`` (:numref:`multi_stereo`)::
       --conv-angle-range 15,45                          \
       --processes 4                                     \
       --threads 4                                       \
-      --stereo_options                                  \
+      --stereo-options                                  \
         "--stereo-algorithm asp_mgm --subpixel-mode 9"  \
       --point2dem-options                               \
         "--tr 0.9 --t_srs EPSG:32617 --errorimage"      \
@@ -327,7 +327,7 @@ a single pair in :numref:`bathy_mask_creation`.
 
 Then run the same ``multi_stereo`` command as above, with the water-surface plane,
 the saltwater refraction index, and the global water mask added to
-``--stereo_options`` (:numref:`bathy_intro`), and a new ``--out-prefix``. The global
+``--stereo-options`` (:numref:`bathy_intro`), and a new ``--out-prefix``. The global
 ortho mask is passed with ``--ortho-bathy-mask`` (in place of the per-image masks of
 :numref:`bathy_mask_creation`)::
 
@@ -343,7 +343,7 @@ ortho mask is passed with ``--ortho-bathy-mask`` (in place of the per-image mask
       --conv-angle-range 15,45                          \
       --processes 4                                     \
       --threads 4                                       \
-      --stereo_options "$stereo_opts"                   \
+      --stereo-options "$stereo_opts"                   \
       --point2dem-options                               \
         "--tr 0.9 --t_srs EPSG:32617 --errorimage"      \
       --out-prefix stereo_bathy/run

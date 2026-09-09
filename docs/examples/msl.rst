@@ -242,18 +242,18 @@ cameras, in ``rig_out/cameras.txt``, are passed to ``multi_stereo``
 (:numref:`multi_stereo`)::
 
     multi_stereo                              \
-      --rig_config rig_out/rig_config.txt     \
-      --camera_poses rig_out/cameras.txt      \
-      --undistorted_crop_win '1100 1100'      \
-      --rig_sensor "lnav rnav"                \
-      --first_step stereo                     \
-      --last_step mesh_gen                    \
-      --stereo_options "$stereo_opts"         \
-      --pc_filter_options "$pc_filter_opts"   \
-      --mesh_gen_options "$mesh_gen_opts"     \
+      --rig-config rig_out/rig_config.txt     \
+      --camera-poses rig_out/cameras.txt      \
+      --undistorted-crop-win '1100 1100'      \
+      --rig-sensor "lnav rnav"                \
+      --first-step stereo                     \
+      --last-step mesh_gen                    \
+      --stereo-options "$stereo_opts"         \
+      --pc-filter-options "$pc_filter_opts"   \
+      --mesh-gen-options "$mesh_gen_opts"     \
       --left ${outDir}/left.txt               \
       --right ${outDir}/right.txt             \
-      --out_dir ${outDir}
+      --out-prefix ${outDir}
 
 This created::
 

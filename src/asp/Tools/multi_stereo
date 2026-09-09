@@ -30,7 +30,7 @@ threads per pair. The modes differ only in how the per-pair clouds are fused:
               --orthoimage, a max triangulation error / orthoimage mosaic). Works for
               raw or mapprojected images (the latter with a seed DEM, --dem).
   mesh:       per-pair pc_filter, then a fused voxblox mesh. The cameras come from a
-              rig (--rig_config, --camera_poses), for robot / structure-from-motion
+              rig (--rig-config, --camera-poses), for robot / structure-from-motion
               data with no datum.
 
 The image pairs come from an overlap list (--overlap-list), or in dem_mosaic mode from
@@ -68,7 +68,7 @@ def process_args(args):
     parser.add_argument("--overlap-list", dest="overlap_list", default="",
                         help = "Text file with the image pairs to run stereo on, one " + \
                         "pair per line. For mode 'mesh': two columns, "                + \
-                        "'left_image right_image', with names as in --camera_poses. "  + \
+                        "'left_image right_image', with names as in --camera-poses. "  + \
                         "For mode 'dem_mosaic': four columns, "                        + \
                         "'left_image right_image left_camera right_camera'. Lines "    + \
                         "starting with '#' and blank lines are ignored. Required.")
@@ -79,7 +79,7 @@ def process_args(args):
                         "and other outputs are named starting with this prefix, for "   + \
                         "example <prefix>-DEM.tif.")
 
-    parser.add_argument("--stereo_options", dest="stereo_options",
+    parser.add_argument("--stereo-options", dest="stereo_options",
                         default="", help="Options to pass to parallel_stereo. Use " + \
                         "double quotes around the full list and simple quotes "   + \
                         "if needed by an individual option, or vice-versa.")
@@ -94,7 +94,7 @@ def process_args(args):
                         help = "Threads per parallel_stereo pair. If positive, each " + \
                         "pair is run with --threads-multiprocess and "                + \
                         "--threads-singleprocess set to this. Default: let "          + \
-                        "parallel_stereo decide (or use --stereo_options).")
+                        "parallel_stereo decide (or use --stereo-options).")
 
     parser.add_argument("--nodes-list", dest="nodes_list", default="",
                         help = "A file with the list of computing nodes, one per "     + \
@@ -103,32 +103,32 @@ def process_args(args):
                         "system. Default: the value of the environment variable "       + \
                         "$PBS_NODEFILE, if set (as on a PBS cluster).")
 
-    parser.add_argument("--first_step",  dest="first_step", default="stereo",
+    parser.add_argument("--first-step",  dest="first_step", default="stereo",
                         help  = "Let the first step run by this tool be, for mode "   + \
                         "'mesh': 'stereo', 'pc_filter', or 'mesh_gen'; for mode "      + \
                         "'dem_mosaic': 'stereo', 'dem', or 'fuse'. This allows "       + \
                         "resuming a run at a desired step.")
 
-    parser.add_argument("--last_step",  dest="last_step", default="",
-                        help  = "The last step run by this tool. See ``--first_step`` " + \
+    parser.add_argument("--last-step",  dest="last_step", default="",
+                        help  = "The last step run by this tool. See ``--first-step`` " + \
                         "for allowed values. Default: the last step of the mode.")
 
     # Options for mode 'mesh' (rig cameras, mesh fusion)
-    parser.add_argument("--rig_config",  dest="rig_config", default="",
+    parser.add_argument("--rig-config",  dest="rig_config", default="",
                         help = "Rig configuration file (mode 'mesh').")
 
-    parser.add_argument("--rig_sensor", dest="rig_sensor", default="",
+    parser.add_argument("--rig-sensor", dest="rig_sensor", default="",
                         help="Which rig sensors to use (mode 'mesh'). Must be among " + \
-                        "the sensors specified via --rig_config. To use images from " + \
+                        "the sensors specified via --rig-config. To use images from " + \
                         "several sensors, pass in a quoted list of them, "            + \
                         "separated by a space.")
 
-    parser.add_argument("--camera_poses", dest="camera_poses",
+    parser.add_argument("--camera-poses", dest="camera_poses",
                         default="", help= "Read images and camera poses for this " + \
                         "sensor from this list (mode 'mesh').")
 
     # Note how the percent sign below is escaped, by writing: %%
-    parser.add_argument("--undistorted_crop_win", dest="undistorted_crop_win",
+    parser.add_argument("--undistorted-crop-win", dest="undistorted_crop_win",
                         default = "",
                         help = "The dimensions of the central image region to keep " + \
                         "after the internal undistortion step and before using "     + \
@@ -137,10 +137,10 @@ def process_args(args):
                         "the Astrobee images:"  + \
                         " sci_cam: '1250 1000' nav_cam: '1100 776'. haz_cam: '250 200'.")
 
-    parser.add_argument("--pc_filter_options", dest="pc_filter_options",
+    parser.add_argument("--pc-filter-options", dest="pc_filter_options",
                         default="", help="Options to pass to pc_filter (mode 'mesh').")
 
-    parser.add_argument("--mesh_gen_options", dest="mesh_gen_options",
+    parser.add_argument("--mesh-gen-options", dest="mesh_gen_options",
                         default="", help="Options to pass to voxblox for mesh " + \
                         "generation (mode 'mesh').")
 
@@ -224,7 +224,7 @@ def read_overlap_pairs(path, min_cols):
 def gen_pairs(args, all_distorted_images):
     """
     For mode 'mesh': map the image-name pairs in the overlap list to indices in
-    all_distorted_images (the images parsed from --camera_poses).
+    all_distorted_images (the images parsed from --camera-poses).
     """
 
     dist_indices = asp_rig_utils.create_index_dict(all_distorted_images)
@@ -297,20 +297,20 @@ def sanity_checks(args):
     step_dict = STEP_DICTS[args.mode]
     for step in [args.first_step, args.last_step]:
         if step not in step_dict:
-            raise Exception("Invalid --first_step or --last_step for mode '" +
+            raise Exception("Invalid --first-step or --last-step for mode '" +
                             args.mode + "'. See the documentation for allowed values.")
 
     if args.mode == "mesh":
         if args.camera_poses == "":
             raise Exception("Mode 'mesh' needs the image and camera pose list "
-                            "(--camera_poses).")
+                            "(--camera-poses).")
         if args.rig_config == "":
-            raise Exception("Mode 'mesh' needs the rig configuration (--rig_config).")
+            raise Exception("Mode 'mesh' needs the rig configuration (--rig-config).")
         if args.rig_sensor == "":
-            raise Exception("Mode 'mesh' needs the rig sensor (--rig_sensor).")
+            raise Exception("Mode 'mesh' needs the rig sensor (--rig-sensor).")
         if args.undistorted_crop_win == "":
             raise Exception("Mode 'mesh' needs the undistorted crop window "
-                            "(--undistorted_crop_win).")
+                            "(--undistorted-crop-win).")
 
 def write_asp_and_voxblox_cameras(undist_intrinsics_file, distorted_images,
                                   undistorted_images,
