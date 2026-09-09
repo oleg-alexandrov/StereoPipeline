@@ -294,6 +294,9 @@ def spawn_to_nodes(step, opt, settings, args, subdirs):
     # Assemble the options which we want GNU parallel to not mess up
     # with. 
     args_copy = args[:] # deep copy
+    # These multi_stereo helper flags must not propagate to the per-tile children.
+    asp_cmd_utils.wipe_option(args_copy, '--emit-tile-commands', 1)
+    asp_cmd_utils.wipe_option(args_copy, '--skip-spawn', 0)
     args_copy += ["--work-dir", opt.work_dir]
     if opt.isisroot  is not None: 
         args_copy += ["--isisroot",  opt.isisroot]
@@ -315,6 +318,16 @@ def spawn_to_nodes(step, opt, settings, args, subdirs):
                " --entry-point " + str(start) + \
                " --stop-point " + str(stop) 
     args_str += " --tile-id {}"
+
+    # multi_stereo: emit the per-tile commands (one per line) and exit, instead of
+    # launching GNU Parallel. The serial setup for this stage already ran above.
+    if opt.emit_tile_commands is not None:
+        with open(opt.emit_tile_commands, 'w') as mf:
+            for i in range(len(subdirs)):
+                mf.write(args_str.replace('{}', str(i)) + '\n')
+        print("Wrote %d tile command(s) to %s" % (len(subdirs), opt.emit_tile_commands))
+        sys.exit(0)
+
     cmd += [args_str]
 
     # This is a bugfix for RHEL 8. The 'parallel' program fails to start with ASP's
@@ -694,6 +707,15 @@ if __name__ == '__main__':
     # The id of the tile to process, 0 <= tile_id < num_tiles.
     p.add_argument('--tile-id', dest='tile_id', default=None, type=int,
                    help=argparse.SUPPRESS)
+    # For multi_stereo: instead of launching GNU Parallel over the tiles of a
+    # stage, write the per-tile commands (one per line) to this file and exit.
+    # The serial setup for the stage still runs first, so the tiles are ready.
+    p.add_argument('--emit-tile-commands', dest='emit_tile_commands', default=None,
+                   help=argparse.SUPPRESS)
+    # For multi_stereo: run a stage's serial setup and finalize but SKIP the
+    # per-tile parallel launch (the tiles were computed externally).
+    p.add_argument('--skip-spawn', dest='skip_spawn', action='store_true',
+                   default=False, help=argparse.SUPPRESS)
     # Directory where the job is running
     p.add_argument('--work-dir', dest='work_dir', default=None,
                    help=argparse.SUPPRESS)
@@ -922,7 +944,8 @@ if __name__ == '__main__':
             # Run full-res stereo using multiple processes.
             check_system_memory(opt, args, settings)
             parallel_args.extend(['--skip-low-res-disparity-comp'])
-            spawn_to_nodes(step, opt, settings, parallel_args, subdirs)
+            if not opt.skip_spawn:
+                spawn_to_nodes(step, opt, settings, parallel_args, subdirs)
             # Low-res disparity is done, so wipe that option
             asp_cmd_utils.wipe_option(parallel_args, '--skip-low-res-disparity-comp', 0)
             
@@ -949,7 +972,8 @@ if __name__ == '__main__':
                 print("No work to do at the blending step.")
             else:
                 subdirs = create_subdirs_symlink(opt, args, settings)
-                spawn_to_nodes(step, opt, settings, parallel_args, subdirs)
+                if not opt.skip_spawn:
+                    spawn_to_nodes(step, opt, settings, parallel_args, subdirs)
 
                 if not skip_refine_step:
                     # Do the same trick as after stereo_corr
@@ -979,7 +1003,8 @@ if __name__ == '__main__':
                 parallel_args.extend(['--subpix-from-blend'])
             if not skip_refine_step:
                 subdirs = create_subdirs_symlink(opt, args, settings)
-                spawn_to_nodes(step, opt, settings, parallel_args, subdirs)
+                if not opt.skip_spawn:
+                    spawn_to_nodes(step, opt, settings, parallel_args, subdirs)
 
             try:
                 build_vrt('stereo_rfne', opt, args, settings, georef, "-RD.tif", "-RD.tif")
@@ -1030,7 +1055,8 @@ if __name__ == '__main__':
                 # Create subdirs and symlink the files just created
                 subdirs = create_subdirs_symlink(opt, args, settings)
                 # Run triangulation on multiple machines
-                spawn_to_nodes(step, opt, settings, parallel_args, subdirs)
+                if not opt.skip_spawn:
+                    spawn_to_nodes(step, opt, settings, parallel_args, subdirs)
                 if int(settings['correlator_mode'][0]) == 0:
                   build_vrt('stereo_tri', opt, args, settings, georef, "-PC.tif", "-PC.tif")
 

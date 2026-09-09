@@ -27,10 +27,14 @@ Two modes:
               behavior, for robot / structure-from-motion data with no datum.
   dem_mosaic: pairwise stereo on mapprojected images with the given cameras and a seed
               DEM, then per-pair point2dem, then a DEM mosaic and a maximum triangulation
-              error mosaic. For mapprojected satellite images (for example CaSSIS).
+              error mosaic. For mapprojected satellite images (for example CaSSIS). The
+              tiled stereo stages of all pairs are pooled into one distributed job, so
+              the load is balanced across all pairs at once, not one pair at a time.
 
-Both modes read the image pairs from an overlap list (--overlap-list). The pairs are run
-in parallel; --processes sets how many run at once and --threads the threads per pair.
+Both modes read the image pairs from an overlap list (--overlap-list). Mode 'mesh' runs
+the pairs in parallel, --processes at a time. Mode 'dem_mosaic' pools the per-tile work
+of all pairs into one job of width --processes, spread over the $PBS_NODEFILE nodes if
+that is set. --threads sets the threads per pair.
 """
 
 import argparse, os, re, shutil, subprocess, sys, glob, shlex, tempfile
@@ -151,15 +155,32 @@ def process_args(args):
                         "footprint by more than this is dropped. Default: 500.")
 
     parser.add_argument("--point2dem-options", dest="point2dem_options", default="",
-                        help = "Options for point2dem (mode 'dem_mosaic'). "         + \
-                        "--errorimage is added automatically. If both --tr and "     + \
-                        "--t_srs are given here, they are used for all pairs; "       + \
-                        "otherwise the grid and projection are taken from the first " + \
-                        "DEM produced and applied to the rest, so all share one grid.")
+                        help = "Options for point2dem (mode 'dem_mosaic'). Pass "      + \
+                        "--errorimage to also mosaic the maximum triangulation error, "+ \
+                        "and --orthoimage (with no argument, the per-pair L.tif is "   + \
+                        "added automatically) to also mosaic an orthoimage (DRG), as " + \
+                        "in stereo_dist. If both --tr and --t_srs are given here, they "+ \
+                        "are used for all pairs; otherwise the grid and projection are "+ \
+                        "taken from the first DEM produced and applied to the rest.")
 
     parser.add_argument("--dem-mosaic-options", dest="dem_mosaic_options", default="",
                         help = "Extra options for the dem_mosaic of the per-pair " + \
                         "DEMs (mode 'dem_mosaic').")
+
+    parser.add_argument("--conv-angle-prefix", dest="conv_angle_prefix", default="",
+                        help = "A bundle_adjust output prefix (mode 'dem_mosaic'). "    + \
+                        "The overlap list is built automatically from the convergence " + \
+                        "angle report <prefix>-convergence_angles.txt: each image pair "+ \
+                        "whose median convergence angle is within --conv-angle-range "  + \
+                        "is used, with the bundle-adjusted cameras "                    + \
+                        "<prefix>-<image>.tsai or .json. Set this and "                 + \
+                        "--conv-angle-range instead of --overlap-list, not both.")
+
+    parser.add_argument("--conv-angle-range", dest="conv_angle_range", default="",
+                        help = "Two comma-separated values, the min and max median "    + \
+                        "convergence angle in degrees, no quotes, for example 15,45 "   + \
+                        "(mode 'dem_mosaic'). Used with --conv-angle-prefix to select " + \
+                        "the stereo pairs.")
 
     args = parser.parse_args()
 
@@ -214,6 +235,27 @@ STEP_DICTS = {"mesh":       {"stereo": 0, "pc_filter": 1, "mesh_gen": 2},
               "dem_mosaic": {"stereo": 0, "dem": 1, "fuse": 2}}
 LAST_STEP  = {"mesh": "mesh_gen", "dem_mosaic": "fuse"}
 
+# The internal step numbers of parallel_stereo (asp_stereo_utils.py). Mode
+# 'dem_mosaic' drives parallel_stereo one step range at a time. The tiled stages
+# (corr, blend, rfne, tri) are pooled across all pairs; the serial stages (pprc,
+# fltr) run per pair. Which of the tiled stages actually spawn per-tile jobs depends
+# on the algorithm and subpixel mode. A stage that spawns none for a given run emits
+# an empty pool and the finalize step just builds the combined output.
+PPRC, CORR, BLEND, RFNE, FLTR, TRI = 0, 1, 2, 3, 4, 5
+
+# One stereo stage per row: (entry point, stop point, pooled, tag, output checked
+# after). A pair that fails to produce the checked output is dropped, and the rest
+# continue. A None output means there is no reliable top-level file for that stage
+# across algorithms, so no pair is dropped after it.
+STEREO_STAGES = [
+    (PPRC,  CORR,    False, "pprc",  "-L.tif"),
+    (CORR,  BLEND,   True,  "corr",  "-D.tif"),
+    (BLEND, RFNE,    True,  "blend", None),
+    (RFNE,  FLTR,    True,  "rfne",  "-RD.tif"),
+    (FLTR,  TRI,     False, "fltr",  "-F.tif"),
+    (TRI,   TRI + 1, True,  "tri",   "-PC.tif"),
+]
+
 def sanity_checks(args):
 
     if args.mode not in ("mesh", "dem_mosaic"):
@@ -222,8 +264,21 @@ def sanity_checks(args):
     if args.out_dir == "":
         raise Exception("The output directory was not specified (--out_dir).")
 
-    if args.overlap_list == "":
-        raise Exception("The overlap list was not specified (--overlap-list).")
+    # Mode 'mesh' always needs the overlap list. Mode 'dem_mosaic' needs either the
+    # overlap list, or both --conv-angle-prefix and --conv-angle-range (to build the
+    # overlap list from a bundle_adjust convergence angle report), but not both.
+    have_conv = (args.conv_angle_prefix != "" or args.conv_angle_range != "")
+    if args.mode == "dem_mosaic" and have_conv:
+        if args.conv_angle_prefix == "" or args.conv_angle_range == "":
+            raise Exception("Both --conv-angle-prefix and --conv-angle-range must be "
+                            "set, or neither.")
+        if args.overlap_list != "":
+            raise Exception("Set either --overlap-list, or --conv-angle-prefix and "
+                            "--conv-angle-range, not both.")
+    elif args.overlap_list == "":
+        raise Exception("The overlap list was not specified (--overlap-list). In mode "
+                        "'dem_mosaic', --conv-angle-prefix and --conv-angle-range may "
+                        "be used instead.")
 
     # Resolve the default last step for the mode
     if args.last_step == "":
@@ -425,7 +480,16 @@ def run_parallel(cmds, num_parallel):
         jf.write("\n".join(cmds) + "\n")
         jobs = jf.name
 
-    cmd = [par, '-j', str(num_parallel), '--halt', 'never', '-a', jobs]
+    cmd = [par, '--will-cite', '-j', str(num_parallel), '--halt', 'never']
+    nodefile = os.environ.get("PBS_NODEFILE")
+    if nodefile is not None and os.path.exists(nodefile):
+        # GNU parallel ssh jobs start in the remote home directory, so force the
+        # shared work directory and propagate the environment that finds the ASP
+        # tools. This needs a shared file system across the nodes.
+        cmd += ['--sshloginfile', nodefile, '--workdir', os.getcwd(),
+                '--env', 'PATH', '--env', 'LD_LIBRARY_PATH',
+                '--env', 'ISISROOT', '--env', 'ISISDATA']
+    cmd += ['-a', jobs]
     print("Running " + str(len(cmds)) + " job(s), " + str(num_parallel) + " at a time.")
     ret = subprocess.call(cmd)
     os.unlink(jobs)
@@ -444,22 +508,99 @@ def stereo_thread_options(args):
                  '--threads-singleprocess', str(args.threads)]
     return opts
 
+def stereo_pair_cmd(ps, args, pair, entry, stop, stereo_options, seed, extra):
+    """
+    One parallel_stereo command line for a pair, over a step range. The seed DEM, if
+    any, is the trailing positional argument (for mapprojected images).
+    """
+    (li, ri, lc, rc) = pair
+    pre = os.path.join(pair_dir(args.out_dir, li, ri), 'run')
+    cmd = [ps] + stereo_thread_options(args) + stereo_options + \
+          ['--entry-point', str(entry), '--stop-point', str(stop)] + \
+          extra + [li, ri, lc, rc, pre] + seed
+    return shlex.join(cmd)
+
+def keep_pairs(pairs, args, suffix):
+    """
+    Keep only the pairs that produced run<suffix>. A pair that fails a stage (for
+    example over textureless water) is dropped, and the rest continue.
+    """
+    if suffix is None:
+        return pairs
+    out = []
+    for pair in pairs:
+        pre = os.path.join(pair_dir(args.out_dir, pair[0], pair[1]), 'run')
+        if os.path.exists(pre + suffix):
+            out.append(pair)
+    if len(out) < len(pairs):
+        print("  Dropped " + str(len(pairs) - len(out)) +
+              " pair(s) missing " + suffix + ".")
+    return out
+
+def stereo_serial_stage(ps, args, pairs, entry, stop, tag, stereo_options, seed):
+    """A non-tiled stereo stage (pprc, fltr): run each pair, --processes at a time."""
+    cmds = [stereo_pair_cmd(ps, args, pair, entry, stop, stereo_options, seed, [])
+            for pair in pairs]
+    print("Stage '" + tag + "': " + str(len(cmds)) + " pair job(s).")
+    run_parallel(cmds, args.processes)
+
+def stereo_pool_stage(ps, args, pairs, entry, stop, tag, stereo_options, seed):
+    """
+    A tiled stereo stage (corr, rfne, tri). Ask parallel_stereo to emit the per-tile
+    commands of every pair (--emit-tile-commands), pool them into one global job, run
+    that pool (spread over the nodes if any), then finalize each pair with --skip-spawn
+    (its serial setup and wrap-up, without re-spawning the tiles). Pooling the tiles of
+    all pairs balances the load better than draining one pair at a time.
+    """
+    emit_cmds = []
+    manifests = []
+    for pair in pairs:
+        pre = os.path.join(pair_dir(args.out_dir, pair[0], pair[1]), 'run')
+        mf = pre + '-' + tag + '-tiles.txt'
+        manifests.append(mf)
+        emit_cmds.append(stereo_pair_cmd(ps, args, pair, entry, stop, stereo_options,
+                                         seed, ['--emit-tile-commands', mf]))
+    run_parallel(emit_cmds, args.processes)
+
+    pool = []
+    for mf in manifests:
+        if os.path.exists(mf):
+            with open(mf, 'r') as f:
+                pool += [ln.rstrip('\n') for ln in f if ln.strip() != ""]
+    print("Stage '" + tag + "': global tile pool of " + str(len(pool)) +
+          " tile(s) from " + str(len(pairs)) + " pair(s).")
+    run_parallel(pool, args.processes)
+
+    finalize = [stereo_pair_cmd(ps, args, pair, entry, stop, stereo_options, seed,
+                                ['--skip-spawn']) for pair in pairs]
+    run_parallel(finalize, args.processes)
+
 def dem_stage_stereo(args, pairs, tool_base_dir):
-    """Run parallel_stereo for each pair (mode 'dem_mosaic')."""
-    print("Step 'stereo': parallel_stereo for each pair.")
+    """
+    Run stereo for all pairs (mode 'dem_mosaic'). This tool drives parallel_stereo
+    through its own per-tile machinery, one step range at a time. It does not
+    reimplement stereo. The tiled stages are pooled across all pairs (see
+    stereo_pool_stage); the serial stages run per pair. A pair that fails a stage is
+    dropped after that stage.
+    """
+    print("Step 'stereo': distributed parallel_stereo over " + str(len(pairs)) +
+          " pair(s).")
     ps = asp_rig_utils.find_tool(tool_base_dir, 'parallel_stereo')
     stereo_options = shlex.split(args.stereo_options.replace('\\', ' '))
     # For mapprojected images the seed DEM is the trailing positional argument.
     seed = [args.seed_dem] if args.seed_dem != "" else []
-    cmds = []
-    for (li, ri, lc, rc) in pairs:
-        sd = pair_dir(args.out_dir, li, ri)
-        asp_rig_utils.mkdir_p(sd)
-        pre = os.path.join(sd, 'run')
-        cmd = [ps] + stereo_thread_options(args) + stereo_options + \
-              [li, ri, lc, rc, pre] + seed
-        cmds.append(shlex.join(cmd))
-    run_parallel(cmds, args.processes)
+    for pair in pairs:
+        asp_rig_utils.mkdir_p(pair_dir(args.out_dir, pair[0], pair[1]))
+
+    for (entry, stop, pooled, tag, suffix) in STEREO_STAGES:
+        if len(pairs) == 0:
+            print("No pairs left to run stereo on.")
+            return
+        if pooled:
+            stereo_pool_stage(ps, args, pairs, entry, stop, tag, stereo_options, seed)
+        else:
+            stereo_serial_stage(ps, args, pairs, entry, stop, tag, stereo_options, seed)
+        pairs = keep_pairs(pairs, args, suffix)
 
 def gdal_pixel_size(path):
     """The pixel size in map units of a raster, or None."""
@@ -489,10 +630,13 @@ def dem_stage_dem(args, pairs, tool_base_dir):
     print("Step 'dem': point2dem for each pair.")
     p2d = asp_rig_utils.find_tool(tool_base_dir, 'point2dem')
     opts = shlex.split(args.point2dem_options.replace('\\', ' '))
-    if '--errorimage' not in opts:
-        opts = opts + ['--errorimage']
     have_tr = '--tr' in opts
     have_srs = '--t_srs' in opts
+    # As in stereo_dist (:numref:`stereo_dist`), --orthoimage may be passed with no
+    # argument. point2dem needs the texture (the pair's L.tif) after the point cloud,
+    # so it is added per pair below. Strip the bare flag from the shared options.
+    want_ortho = '--orthoimage' in opts
+    opts = [o for o in opts if o != '--orthoimage']
 
     # The projection can also come from the reference or seed DEM.
     proj = ""
@@ -504,7 +648,10 @@ def dem_stage_dem(args, pairs, tool_base_dir):
     def p2d_cmd(pair, extra):
         (li, ri, lc, rc) = pair
         pre = os.path.join(pair_dir(args.out_dir, li, ri), 'run')
-        return shlex.join([p2d] + opts + extra + ['-o', pre, pre + '-PC.tif'])
+        cmd = [p2d] + opts + extra + ['-o', pre, pre + '-PC.tif']
+        if want_ortho:
+            cmd += ['--orthoimage', pre + '-L.tif']
+        return shlex.join(cmd)
 
     srs_extra = [] if have_srs or proj == "" else ['--t_srs', proj]
 
@@ -547,19 +694,19 @@ def gdal_bbox(path):
     lr = re.search(r'Lower Right\s+\(\s*(-?[0-9.]+),\s*(-?[0-9.]+)\)', info)
     return (ul.group(1), ul.group(2), lr.group(1), lr.group(2)) if ul and lr else None
 
-def blunder_filter(dems, errs, ref_dem, tol):
+def blunder_filter(pres, ref_dem, tol):
     """
-    Drop a per-pair DEM, and its triangulation error mate, if its mean elevation departs
-    from the reference DEM over the same footprint by more than tol. This is relief
-    aware: it compares each DEM to the reference locally, not to a global value, so real
-    high and low terrain is kept and only true blunders are dropped. Where the reference
-    has no data over a DEM, the DEM is kept.
+    Given the per-pair output prefixes, drop a pair (and all its products) if the mean
+    elevation of its DEM departs from the reference DEM over the same footprint by more
+    than tol. This is relief aware: it compares each DEM to the reference locally, not
+    to a global value, so real high and low terrain is kept and only true blunders are
+    dropped. Where the reference has no data over a DEM, the pair is kept.
     """
     gt = asp_rig_utils.which('gdal_translate')
-    keep_dems = []
-    keep_errs = []
+    keep = []
     dropped = 0
-    for (d, e) in zip(dems, errs):
+    for pre in pres:
+        d = pre + '-DEM.tif'
         dm = gdal_mean(d)
         if dm is None:
             continue
@@ -574,49 +721,129 @@ def blunder_filter(dems, errs, ref_dem, tol):
                 rm = gdal_mean(crop)
                 os.unlink(crop)
         if rm is None or abs(dm - rm) <= tol:
-            keep_dems.append(d)
-            keep_errs.append(e)
+            keep.append(pre)
         else:
             dropped += 1
 
-    print("Blunder filter (tolerance " + str(tol) + " m): kept " + str(len(keep_dems)) +
+    print("Blunder filter (tolerance " + str(tol) + " m): kept " + str(len(keep)) +
           ", dropped " + str(dropped) + ".")
-    return keep_dems, keep_errs
+    return keep
 
 def dem_stage_fuse(args, pairs, tool_base_dir):
-    """Mosaic the per-pair DEMs and the maximum triangulation error (mode 'dem_mosaic')."""
-    print("Step 'fuse': dem_mosaic of the DEMs and the maximum triangulation error.")
+    """
+    Mosaic the per-pair products (mode 'dem_mosaic'). The DEM is always produced. The
+    maximum triangulation error is mosaicked if --errorimage was in --point2dem-options,
+    and an orthoimage (DRG) if --orthoimage was, matching stereo_dist
+    (:numref:`stereo_dist`). The output names follow point2dem: dem_mosaic-DEM.tif,
+    dem_mosaic-IntersectionErr.tif, dem_mosaic-DRG.tif.
+    """
+    print("Step 'fuse': dem_mosaic of the per-pair products.")
     dm = asp_rig_utils.find_tool(tool_base_dir, 'dem_mosaic')
-    dems = [os.path.join(pair_dir(args.out_dir, li, ri), 'run-DEM.tif')
+    want_err = '--errorimage' in args.point2dem_options
+    want_ortho = '--orthoimage' in args.point2dem_options
+
+    pres = [os.path.join(pair_dir(args.out_dir, li, ri), 'run')
             for (li, ri, _, _) in pairs]
-    errs = [os.path.join(pair_dir(args.out_dir, li, ri), 'run-IntersectionErr.tif')
-            for (li, ri, _, _) in pairs]
-    both = [(d, e) for (d, e) in zip(dems, errs) if os.path.exists(d)]
-    dems = [d for (d, e) in both]
-    errs = [e for (d, e) in both]
-    if len(dems) == 0:
+    pres = [p for p in pres if os.path.exists(p + '-DEM.tif')]
+    if len(pres) == 0:
         raise Exception("No per-pair DEMs were produced.")
 
     if args.ref_dem != "":
-        dems, errs = blunder_filter(dems, errs, args.ref_dem, args.blunder_tol)
+        pres = blunder_filter(pres, args.ref_dem, args.blunder_tol)
 
     mos = os.path.join(args.out_dir, 'dem_mosaic')
     mosaic_opts = shlex.split(args.dem_mosaic_options.replace('\\', ' '))
-    # The DEMs already share one grid (point2dem ran with the same --tr and --t_srs),
-    # so dem_mosaic needs no grid options. The error is mosaicked with --max, the
-    # worst-case ray self-consistency over the overlapping pairs.
-    c1 = shlex.join([dm] + mosaic_opts + dems + ['-o', mos + '-DEM.tif'])
-    c2 = shlex.join([dm, '--max'] + errs + ['-o', mos + '-IntersectionErr.tif'])
-    run_parallel([c1, c2], min(2, args.processes))
-    print("Wrote: " + mos + "-DEM.tif")
-    print("Wrote: " + mos + "-IntersectionErr.tif")
+    # The per-pair products already share one grid (point2dem ran with the same --tr
+    # and --t_srs), so dem_mosaic needs no grid options. The DEM is blended. The error
+    # is combined with --max, the worst-case ray self-consistency over the overlapping
+    # pairs. The orthoimage is combined with --first, taking the first valid pixel to
+    # avoid smearing seams from blending.
+    cmds = [shlex.join([dm] + mosaic_opts + [p + '-DEM.tif' for p in pres] +
+                       ['-o', mos + '-DEM.tif'])]
+    outputs = [mos + '-DEM.tif']
+    if want_err:
+        errs = [p + '-IntersectionErr.tif' for p in pres]
+        cmds.append(shlex.join([dm, '--max'] + errs +
+                               ['-o', mos + '-IntersectionErr.tif']))
+        outputs.append(mos + '-IntersectionErr.tif')
+    if want_ortho:
+        cmds.append(shlex.join([dm, '--first'] + [p + '-DRG.tif' for p in pres] +
+                               ['-o', mos + '-DRG.tif']))
+        outputs.append(mos + '-DRG.tif')
+
+    run_parallel(cmds, min(len(cmds), args.processes))
+    for o in outputs:
+        print("Wrote: " + o)
+
+def conv_angle_camera(prefix, image):
+    """The bundle-adjusted camera for an image, as <prefix>-<image_stem>.tsai (pinhole)
+    or <prefix>-<image_stem>.json (CSM). The first that exists is used."""
+    stem = os.path.splitext(os.path.basename(image))[0]
+    for ext in ('.tsai', '.json'):
+        cam = prefix + "-" + stem + ext
+        if os.path.exists(cam):
+            return cam
+    raise Exception("Expected a bundle-adjusted camera " + prefix + "-" + stem +
+                    ".tsai or .json. With --conv-angle-prefix, bundle_adjust must "
+                    "have written standalone cameras. Otherwise use --overlap-list.")
+
+def build_conv_angle_pairs(args):
+    """
+    Build the list of stereo pairs from a bundle_adjust convergence angle report
+    (mode 'dem_mosaic'). Select the pairs whose median convergence angle is within
+    --conv-angle-range. The cameras are the bundle-adjusted cameras
+    <prefix>-<image_stem>.tsai. Return a list of (left_image, right_image,
+    left_camera, right_camera) tuples.
+    """
+    vals = args.conv_angle_range.split(',')
+    if len(vals) != 2:
+        raise Exception("--conv-angle-range must be two comma-separated values, no "
+                        "quotes, for example 15,45.")
+    lo = float(vals[0])
+    hi = float(vals[1])
+    if lo >= hi:
+        raise Exception("--conv-angle-range needs min < max, for example 15,45.")
+
+    report = args.conv_angle_prefix + "-convergence_angles.txt"
+    if not os.path.exists(report):
+        raise Exception("Cannot find the convergence angle report: " + report +
+                        ". It is written by bundle_adjust.")
+
+    # The report columns are: left_image right_image 25% 50% 75% num_matches.
+    # Select on the median (50th percentile) convergence angle.
+    pairs = []
+    total = 0
+    with open(report, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line == "" or line.startswith('#'):
+                continue
+            toks = line.split()
+            if len(toks) < 5:
+                continue
+            total += 1
+            med = float(toks[3])
+            if med < lo or med > hi:
+                continue
+            (li, ri) = (toks[0], toks[1])
+            pairs.append((li, ri, conv_angle_camera(args.conv_angle_prefix, li),
+                          conv_angle_camera(args.conv_angle_prefix, ri)))
+
+    print("Convergence angle range [" + str(lo) + ", " + str(hi) + "] deg: kept " +
+          str(len(pairs)) + " of " + str(total) + " pair(s) from " + report + ".")
+    if len(pairs) == 0:
+        raise Exception("No image pairs fall within --conv-angle-range.")
+    return pairs
 
 def run_dem_mosaic(args, tool_base_dir):
     """Drive mode 'dem_mosaic': stereo, then per-pair DEM, then mosaic."""
     step_dict = STEP_DICTS["dem_mosaic"]
     first = step_dict[args.first_step]
     last = step_dict[args.last_step]
-    pairs = read_overlap_pairs(args.overlap_list, 4)
+    if args.overlap_list != "":
+        pairs = read_overlap_pairs(args.overlap_list, 4)
+    else:
+        pairs = build_conv_angle_pairs(args)
     print("Mode 'dem_mosaic': " + str(len(pairs)) + " pair(s).")
     if first <= 0 and last >= 0:
         dem_stage_stereo(args, pairs, tool_base_dir)

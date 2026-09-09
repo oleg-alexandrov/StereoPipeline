@@ -8,6 +8,9 @@ New features:
   * Added an example for bathymetry with aerial images (:numref:`aerial_bathymetry`).
   * Added the AKAZE, BRISK, and KAZE interest point detection methods to
     ``parallel_stereo``, ``bundle_adjust``, etc. (:numref:`stereodefault`).
+  * Added a program for multi-view stereo that does pairwise stereo with load
+    balancing and DEM merge (each job is a tile in a stereo run). (This expanded
+    a stub placeholder.) See :numref:`multi_stereo`.
   * Added an example for Viking Orbiter (:numref:`viking`).
   * Added an example for the Clementine NIR camera (:numref:`clementine`).
   * Added ``glint_correct``, to remove sun glint from a visible band for
@@ -41,16 +44,6 @@ jitter_solve (:numref:`jitter_solve`):
     (:numref:`ba_gcp_report`).
   * Added ``--heights-from-dem-list``, to constrain the triangulated points
     against several sites.
-
-multi_stereo (:numref:`multi_stereo`):
-  * Added the ``dem_mosaic`` mode, to run pairwise stereo on mapprojected images
-    and mosaic the per-pair DEMs and the maximum triangulation error. This works
-    with a seed DEM and given cameras, for example for TGO CaSSIS
-    (:numref:`multi_stereo`).
-  * The image pairs are now given by ``--overlap-list`` in both modes, and the
-    mode is chosen with ``--mode`` (``mesh`` or ``dem_mosaic``).
-  * Added ``--processes`` and ``--threads``, to run several stereo pairs at the
-    same time, each with its own thread count.
 
 point2dem (:numref:`point2dem`):
   * Fixed a bug that could produce an enormous output DEM extent (and a

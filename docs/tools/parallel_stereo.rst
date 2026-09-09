@@ -3,31 +3,29 @@
 parallel_stereo
 ---------------
 
-The ``parallel_stereo`` program is the primary tool of the Ames Stereo
-Pipeline.  It takes a stereo pair of images that overlap with
-corresponding cameras and creates an output point cloud image that can
-be processed into a visualizable mesh or a DEM using :ref:`point2mesh`
-and :ref:`point2dem` respectively.
+The ``parallel_stereo`` program is the primary tool of the Ames Stereo Pipeline.
+It takes a stereo pair of images that overlap with corresponding cameras and
+creates an output point cloud image that can be processed into a visualizable
+mesh or a DEM using :ref:`point2mesh` and :ref:`point2dem` respectively.
 
-This program can distribute the stereo processing over multiple
-computing nodes if invoked with the ``--nodes-list`` option. It uses
-GNU Parallel to manage the jobs, a program that is shipped with the
-Stereo Pipeline. It expects that all nodes can connect to each other
-using ssh without password and that they share the same storage space.
+This program can distribute the stereo processing over multiple computing nodes
+if invoked with the ``--nodes-list`` option. It uses GNU Parallel to manage the
+jobs, a program that is shipped with the Stereo Pipeline. It expects that all
+nodes can connect to each other using ssh without password and that they share
+the same storage space.
 
-Usage::
-
-    parallel_stereo [options] <images> [<cameras>] <output_prefix>
+To run stereo on many image pairs at once and mosaic the results, with the load
+balanced across all the pairs, use ``multi_stereo`` (:numref:`multi_stereo`),
+which is built on top of this program.
 
 See :numref:`tutorial` for more details. Many examples of this
 program are in :numref:`examples`.
 
 See :numref:`pbs_slurm` for how to set up this tool for PBS and SLURM systems.
 
-This program operates only on single channel (grayscale)
-images. Multi-channel images need to first be converted to grayscale
-or a single channel should be extracted with ``gdal_translate`` 
-with the ``-b`` option.
+This program operates only on single channel (grayscale) images. Multi-channel
+images need to first be converted to grayscale or a single channel should be
+extracted with ``gdal_translate`` with the ``-b`` option.
 
 Processes and threads
 ~~~~~~~~~~~~~~~~~~~~~
@@ -60,7 +58,6 @@ one node, as they require global knowledge of the data. In addition, not all
 stages of stereo benefit equally from parallelization. Most likely to gain are
 stages 1 and 3 (correlation and refinement) which are the most computationally
 expensive.
-
 
 Output files
 ~~~~~~~~~~~~
@@ -108,11 +105,6 @@ An example is given in :numref:`mapproj_reuse`. Another one is in
 If the program failed during correlation, such as because of
 insufficient memory, it can be told to resume without recomputing the
 existing good partial results with the option ``--resume-at-corr``.
-
-Output files
-~~~~~~~~~~~~
-
-The output files created by this program are described in :numref:`outputfiles`.
 
 .. _entrypoints:
 
@@ -176,6 +168,13 @@ Step 6 (Cleanup)
 This is followed usually by DEM creation with :ref:`point2dem`, which is not
 part of this program.
 
+Usage
+~~~~~
+
+::
+
+    parallel_stereo [options] <images> [<cameras>] <output_prefix>
+
 .. _ps_options:
 
 Command-line options
@@ -193,7 +192,7 @@ Command-line options
     for XML cameras (if it has both DG and RPC models). Options and when to use:
     
     - nadirpinhole -- for satellites/aircraft with pinhole cameras
-      (:numref:`skysat`, :numref:`sfmicebridge`). This equivalent to using
+      (:numref:`skysat`, :numref:`sfmicebridge`). This is equivalent to using
       ``pinhole`` and setting ``--datum``. The datum will be auto-guessed with
       ``nadirpinhole`` based on the camera center coordinates, if not set (only
       for Earth, Moon, and Mars).

@@ -314,12 +314,13 @@ angle and number of matches between any two images in a given set
 (:numref:`ba_conv_angle`).
 
 That data can be used to decide on promising stereo pairs to consider
-(:numref:`stereo_pairs`). Pairwise stereo and DEM creation can be run, as in
-:numref:`tutorial`.
+(:numref:`stereo_pairs`). Pairwise stereo on these pairs, a per-pair DEM, and a
+mosaic of the DEMs can all be run in one step with ``multi_stereo``
+(:numref:`multi_stereo`), which balances the load across all pairs. The individual
+steps are as in :numref:`tutorial`.
 
-The DEMs can be mosaicked together with ``dem_mosaic`` (:numref:`dem_mosaic`). 
-To give more weight in mosaicking to DEMs with a larger convergence angle, 
-see :numref:`dem_mosaic_external_weights`.
+To give more weight in mosaicking to DEMs with a larger convergence angle, see
+:numref:`dem_mosaic_external_weights`.
 
 The input DEMs should agree quite well if the intrinsics are accurate, there is
 enough overlap between the images, many interest point matches were found, and

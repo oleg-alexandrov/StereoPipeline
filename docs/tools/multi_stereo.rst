@@ -3,23 +3,45 @@
 multi_stereo
 ------------
 
-The ``multi_stereo`` program runs pairwise stereo on many image pairs given by an
-overlap list, and fuses the results. It has two modes, set with ``--mode``:
+The ``multi_stereo`` program runs pairwise stereo on many image pairs, given by a
+range of stereo convergence angles or an overlap list, and fuses the results.
+
+Each tile of each stereo pair is a separate job, and these are run in parallel over
+a given number of nodes and processes per node. It is thus a generalization of
+``parallel_stereo`` (:numref:`parallel_stereo`).
+
+It works with every image and camera type ASP supports, and handles all
+``parallel_stereo`` options (via ``--stereo_options``).
+
+DEM vs mesh mode
+~~~~~~~~~~~~~~~~
+
+This program has two modes, set with ``--mode``:
+
+* ``dem_mosaic``: pairwise stereo with the given cameras, then ``point2dem``
+  (:numref:`point2dem`) per pair, then a DEM mosaic with ``dem_mosaic``
+  (:numref:`dem_mosaic`). It can also mosaic the maximum triangulation error (with
+  ``dem_mosaic --max``) and an orthoimage (DRG) at the DEM resolution (with
+  ``dem_mosaic --first``); see ``--point2dem-options``. This works for raw images
+  (aerial frame cameras, :numref:`aerial_bathymetry`) or mapprojected images with a
+  seed DEM (satellite, for example TGO CaSSIS, :numref:`multi_stereo_dem_mosaic`).
 
 * ``mesh``: pairwise stereo, then ``pc_filter`` (:numref:`pc_filter`), then a fused
   mesh with ``voxblox_mesh`` (:numref:`voxblox_mesh`). The cameras come from a rig
   (:numref:`rig_calibrator`). This is for robot or Structure-from-Motion data, with no
   datum. See the example below.
 
-* ``dem_mosaic``: pairwise stereo on mapprojected images with the given cameras and a
-  seed DEM, then ``point2dem`` (:numref:`point2dem`) per pair, then a DEM mosaic and a
-  maximum triangulation error mosaic with ``dem_mosaic`` (:numref:`dem_mosaic`). This
-  is for mapprojected satellite images, for example TGO CaSSIS (:numref:`cassis`). See
-  :numref:`multi_stereo_dem_mosaic`.
+The image pairs are auto-determined from a convergence angle range
+(``--conv-angle-prefix`` and ``--conv-angle-range``, ``dem_mosaic`` mode), or read
+from an overlap list (``--overlap-list``). See :numref:`multi_stereo_command_line`.
 
-In both modes the image pairs are read from an overlap list (``--overlap-list``). The
-pairs run in parallel; ``--processes`` sets how many run at once and ``--threads`` the
-threads per pair.
+In ``dem_mosaic`` mode the per-tile work of all pairs is pooled into one job of
+width ``--processes``, so the load is balanced across all pairs rather than
+draining one pair at a time. If the environment variable ``PBS_NODEFILE`` is set
+(as on a cluster), that pooled job is spread over those nodes, which requires a
+shared file system. The value of ``--threads`` sets the threads per pair.
+
+In ``mesh`` mode the pairs run in parallel, ``--processes`` at a time.
 
 .. _multi_stereo_dem_mosaic:
 
@@ -62,13 +84,20 @@ the images (here 18 m)::
       --processes 4                                                    \
       --threads 2                                                      \
       --stereo_options "$stereo_opts"                                  \
-      --point2dem-options "--tr 18 --max-valid-triangulation-error 8"  \
+      --point2dem-options "--tr 18 --errorimage --orthoimage"          \
       --out_dir stereo_out
 
-This writes ``stereo_out/dem_mosaic-DEM.tif`` and
-``stereo_out/dem_mosaic-IntersectionErr.tif``, the latter being the maximum
-triangulation error over the pairs (:numref:`point2dem`), a useful diagnostic of ray
-self-consistency.
+This writes ``stereo_out/dem_mosaic-DEM.tif``. The output names follow ``point2dem``,
+with ``dem_mosaic`` as the prefix. As in ``stereo_dist`` (:numref:`stereo_dist`), two
+optional products are added by passing the corresponding flag in
+``--point2dem-options``:
+
+* ``--errorimage`` also writes ``stereo_out/dem_mosaic-IntersectionErr.tif``, the
+  maximum triangulation error over the pairs (:numref:`triangulation_error`),
+  combined with ``dem_mosaic --max``. A useful diagnostic of ray self-consistency.
+* ``--orthoimage`` (with no argument, the per-pair ``L.tif`` is added automatically)
+  also writes ``stereo_out/dem_mosaic-DRG.tif``, the orthoimage, combined with
+  ``dem_mosaic --first`` (the first valid pixel, to avoid smearing seams).
 
 The seed DEM (``--dem``) is the one the images were mapprojected onto. It is passed to
 ``parallel_stereo`` as the input DEM for mapprojected stereo. The three steps are
@@ -289,16 +318,17 @@ Command-line options for multi_stereo
 
 --mode <string (default: "")>
     Processing mode. One of: ``mesh`` (pairwise stereo, ``pc_filter``, then a
-    fused mesh, with rig cameras) or ``dem_mosaic`` (pairwise stereo on
-    mapprojected images with the given cameras and a seed DEM, per-pair
-    ``point2dem``, then a DEM mosaic and a maximum triangulation error mosaic).
-    Required.
+    fused mesh, with rig cameras) or ``dem_mosaic`` (pairwise stereo with the given
+    cameras, per-pair ``point2dem``, then a DEM mosaic, and optionally a
+    triangulation error and orthoimage mosaic). Required.
 --overlap-list <string (default: "")>
     Text file with the image pairs to run stereo on, one pair per line. For
     mode ``mesh``: two columns, ``left_image right_image``, with names as in
     ``--camera_poses``. For mode ``dem_mosaic``: four columns,
     ``left_image right_image left_camera right_camera``. Lines starting with
-    ``#`` and blank lines are ignored. Required.
+    ``#`` and blank lines are ignored. Required, unless in mode ``dem_mosaic``
+    the pairs are determined automatically with ``--conv-angle-prefix`` (see
+    below).
 --out_dir <string (default: "")>
     The directory where to write the stereo output, textured mesh or DEM
     mosaic, and other data.
@@ -307,9 +337,9 @@ Command-line options for multi_stereo
     around the full list and simple quotes if needed by an
     individual option, or vice-versa.
 --processes <integer (default: 1)>
-    How many stereo pairs to run at the same time. Each pair is run with
-    ``parallel_stereo --processes 1``, so this tool owns the parallelism across
-    pairs.
+    The width of the parallel job. In ``mesh`` mode, how many pairs run at once.
+    In ``dem_mosaic`` mode, how many per-tile jobs run at once in the pool over all
+    pairs. If ``PBS_NODEFILE`` is set, the pool is spread over those nodes.
 --threads <integer (default: 0)>
     Threads per ``parallel_stereo`` pair. If positive, each pair is run with
     ``--threads-multiprocess`` and ``--threads-singleprocess`` set to this.
@@ -361,12 +391,26 @@ Options for mode ``dem_mosaic``:
     whose mean elevation departs from the reference over its footprint by more
     than this is dropped.
 --point2dem-options <string (default: "")>
-    Options for ``point2dem``. ``--errorimage`` is added automatically. If both
-    ``--tr`` and ``--t_srs`` are given here, they are used for all pairs;
-    otherwise the grid and projection are taken from the first DEM produced and
-    applied to the rest, so all share one grid.
+    Options for ``point2dem``. Pass ``--errorimage`` to also mosaic the maximum
+    triangulation error, and ``--orthoimage`` (with no argument, the per-pair
+    ``L.tif`` is added automatically) to also mosaic an orthoimage (DRG), as in
+    ``stereo_dist`` (:numref:`stereo_dist`). If both ``--tr`` and ``--t_srs`` are
+    given here, they are used for all pairs; otherwise the grid and projection are
+    taken from the first DEM produced and applied to the rest, so all share one grid.
 --dem-mosaic-options <string (default: "")>
     Extra options for the ``dem_mosaic`` of the per-pair DEMs.
+--conv-angle-prefix <string (default: "")>
+    A ``bundle_adjust`` output prefix. The overlap list is built automatically from
+    the convergence angle report ``<prefix>-convergence_angles.txt``
+    (:numref:`ba_conv_angle`): each image pair whose median convergence angle is
+    within ``--conv-angle-range`` is used, with the bundle-adjusted cameras
+    ``<prefix>-<image>.tsai`` or ``.json`` (as written by ``bundle_adjust``).
+    Set this and ``--conv-angle-range`` instead of ``--overlap-list``, not both. See
+    the example in :numref:`aerial_bathymetry`.
+--conv-angle-range <min,max>
+    Two comma-separated values, no quotes, the minimum and maximum median convergence
+    angle in degrees, for example ``15,45``. Used with ``--conv-angle-prefix`` to
+    select the stereo pairs.
 
 -h, --help
   Show this help message and exit.

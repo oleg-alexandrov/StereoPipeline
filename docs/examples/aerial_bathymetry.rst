@@ -197,45 +197,53 @@ DEM creation
 
 Unlike with satellite data, a collection of aerial images has many overlapping
 stereo pairs. Bundle adjustment writes a report with the pairwise stereo
-convergence angle for all image pairs (:numref:`ba_conv_angle`).
-
-It is suggested to run ``parallel_stereo`` (:numref:`parallel_stereo`) on
-the pairs whose convergence angle is between 15 and 45 degrees
+convergence angle for all image pairs (:numref:`ba_conv_angle`). The pairs whose
+convergence angle is between 15 and 45 degrees make good stereo pairs
 (:numref:`stereo_pairs`).
 
 This requires build 2026/09/10 (:numref:`release`) or later.
 
-Use the cameras produced during bundle adjustment. Example for one pair::
+Run stereo on all these pairs and mosaic the results into one DEM with
+``multi_stereo`` (:numref:`multi_stereo`). It integrates the steps that would
+otherwise be run by hand:
 
-    parallel_stereo                      \
-      --stereo-algorithm asp_mgm         \
-      --subpixel-mode 9                  \
-      left.tif right.tif                 \
-      ba/run-left.tsai ba/run-right.tsai \
-      stereo/left_right/run
+* ``parallel_stereo`` (:numref:`parallel_stereo`) on each pair, with the tiles of
+  all pairs pooled into one job, so the load is balanced across all pairs rather
+  than draining one pair at a time.
+* ``point2dem`` (:numref:`point2dem`) on each point cloud, on a fixed grid and
+  projection. With ``--errorimage`` in ``--point2dem-options``, each pair also gets
+  a triangulation error raster (:numref:`triangulation_error`).
+* ``dem_mosaic`` (:numref:`dem_mosaic`) to blend the per-pair DEMs into one, and
+  ``dem_mosaic --max`` to combine the per-pair triangulation errors, keeping the
+  largest error at each location.
 
-Then make a DEM from each pair with :ref:`point2dem`. Use a single fixed grid
-size and projection for every pair so these DEMs are easy to merge later::
+Rather than list the pairs by hand, ``multi_stereo`` selects them from the
+convergence angle report. Pass the bundle adjustment prefix with
+``--conv-angle-prefix`` and the angle range with ``--conv-angle-range`` (two
+comma-separated values, no quotes). Each pair whose median convergence angle is in
+that range is run, with the bundle-adjusted cameras ``ba/run-<image>.tsai``. To pass
+the pairs directly instead, use ``--overlap-list`` (:numref:`multi_stereo`)::
 
-    point2dem --tr 0.9     \
-        --t_srs EPSG:32617 \
-        --errorimage       \
-        stereo/left_right/run-PC.tif
+    multi_stereo                                        \
+      --mode dem_mosaic                                 \
+      --conv-angle-prefix ba/run                        \
+      --conv-angle-range 15,45                          \
+      --processes 4                                     \
+      --threads 4                                       \
+      --stereo_options                                  \
+        "--stereo-algorithm asp_mgm --subpixel-mode 9"  \
+      --point2dem-options                               \
+        "--tr 0.9 --t_srs EPSG:32617 --errorimage"      \
+      --out_dir stereo
 
-Here the grid size is 0.9 m, about four times the 0.23 m ground sample distance, in
-the same UTM zone as the cameras.
+This writes ``stereo/dem_mosaic-DEM.tif`` and
+``stereo/dem_mosaic-IntersectionErr.tif``. These follow the ``point2dem`` naming,
+with ``dem_mosaic`` as the prefix.
 
-Blend the DEMs into one mosaic with :ref:`dem_mosaic`::
-
-    dem_mosaic stereo/*/run-DEM.tif \
-        -o mosaic_dem.tif
-
-The triangulation error (:numref:`triangulation_error`) is mosaicked separately
-with ``dem_mosaic --max`` (:numref:`dem_mosaic`), which keeps the largest
-error value at a given location::
-
-    dem_mosaic --max stereo/*/run-IntersectionErr.tif \
-      -o mosaic_tri_err.tif
+The grid is 0.9 m, about four times the 0.23 m ground sample distance, in the same
+UTM zone as the cameras. Pinning ``--tr`` and ``--t_srs`` puts every per-pair DEM
+on the same grid, so the mosaic is clean. Here the images are not mapprojected, so
+no seed DEM is passed. For mapprojected input, add ``--dem`` (:numref:`multi_stereo_dem_mosaic`).
 
 .. figure:: ../images/examples/aerial_dem_vs_3dep.png
    :name: aerial_dem_3dep
@@ -250,10 +258,10 @@ error value at a given location::
 To create an orthoimage, mapproject each image onto the mosaic DEM at the 0.23 m
 ground sample distance::
 
-    mapproject --tr 0.23  \
-        mosaic_dem.tif    \
-        image.tif         \
-        ba/run-image.tsai \
+    mapproject --tr 0.23           \
+        stereo/dem_mosaic-DEM.tif  \
+        image.tif                  \
+        ba/run-image.tsai          \
         image_map.tif
 
 then mosaic with::
@@ -308,18 +316,40 @@ too shallow. The bathymetry correction of :numref:`bathy_intro` fixes this. Firs
 fit one water-surface plane over the whole dataset with ``bathy_plane_calc``
 (:numref:`water_surface`), using the global ortho mask and the DEM::
 
-    bathy_plane_calc                 \
-      --mask ortho_water_mask.tif    \
-      --dem mosaic_dem.tif           \
+    bathy_plane_calc                     \
+      --mask ortho_water_mask.tif        \
+      --dem stereo/dem_mosaic-DEM.tif    \
       --output-plane bathy_plane.txt
 
 Because there is a single mosaicked orthoimage, one global mask and one plane serve
 the entire dataset. This is simpler than the per-image left and right masks used for
 a single pair in :numref:`bathy_mask_creation`.
 
-Then re-run stereo triangulation for each pair with the plane and the saltwater
-refraction index (:numref:`bathy_reuse_run`), make a DEM per pair, and mosaic as
-before into a bathymetry-corrected DEM.
+Then run the same ``multi_stereo`` command as above, with the water-surface plane,
+the saltwater refraction index, and the global water mask added to
+``--stereo_options`` (:numref:`bathy_intro`), and a new ``--out_dir``. The global
+ortho mask is passed with ``--ortho-bathy-mask`` (in place of the per-image masks of
+:numref:`bathy_mask_creation`)::
+
+    stereo_opts="
+      --stereo-algorithm asp_mgm --subpixel-mode 9
+      --ortho-bathy-mask ortho_water_mask.tif
+      --bathy-plane bathy_plane.txt
+      --refraction-index 1.34"
+
+    multi_stereo                                        \
+      --mode dem_mosaic                                 \
+      --conv-angle-prefix ba/run                        \
+      --conv-angle-range 15,45                          \
+      --processes 4                                     \
+      --threads 4                                       \
+      --stereo_options "$stereo_opts"                   \
+      --point2dem-options                               \
+        "--tr 0.9 --t_srs EPSG:32617 --errorimage"      \
+      --out_dir stereo_bathy
+
+This makes a bathymetry-corrected DEM per pair and mosaics them as before, into
+``stereo_bathy/dem_mosaic-DEM.tif``.
 
 .. figure:: ../images/examples/aerial_bathy_deepen.png
    :name: aerial_bathy_deepen
