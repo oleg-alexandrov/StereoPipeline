@@ -35,13 +35,11 @@ The image pairs are auto-determined from a convergence angle range
 (``--conv-angle-prefix`` and ``--conv-angle-range``, ``dem_mosaic`` mode), or read
 from an overlap list (``--overlap-list``). See :numref:`multi_stereo_command_line`.
 
-In ``dem_mosaic`` mode the per-tile work of all pairs is pooled into one job of
-width ``--processes``, so the load is balanced across all pairs rather than
-draining one pair at a time. If the environment variable ``PBS_NODEFILE`` is set
-(as on a cluster), that pooled job is spread over those nodes, which requires a
-shared file system. The value of ``--threads`` sets the threads per pair.
-
-In ``mesh`` mode the pairs run in parallel, ``--processes`` at a time.
+In both modes the per-tile work of all pairs is pooled into one job of width
+``--processes``, so the load is balanced across all pairs rather than draining one
+pair at a time. If the environment variable ``PBS_NODEFILE`` is set (as on a
+cluster), that pooled job is spread over those nodes, which requires a shared file
+system. The value of ``--threads`` sets the threads per pair.
 
 .. _multi_stereo_dem_mosaic:
 
@@ -85,18 +83,18 @@ the images (here 18 m)::
       --threads 2                                                      \
       --stereo_options "$stereo_opts"                                  \
       --point2dem-options "--tr 18 --errorimage --orthoimage"          \
-      --out_dir stereo_out
+      --out-prefix stereo_out/run
 
-This writes ``stereo_out/dem_mosaic-DEM.tif``. The output names follow ``point2dem``,
-with ``dem_mosaic`` as the prefix. As in ``stereo_dist`` (:numref:`stereo_dist`), two
+This writes ``stereo_out/run-DEM.tif``. The output names follow ``point2dem``: the
+output prefix plus ``-DEM.tif``. As in ``stereo_dist`` (:numref:`stereo_dist`), two
 optional products are added by passing the corresponding flag in
 ``--point2dem-options``:
 
-* ``--errorimage`` also writes ``stereo_out/dem_mosaic-IntersectionErr.tif``, the
+* ``--errorimage`` also writes ``stereo_out/run-IntersectionErr.tif``, the
   maximum triangulation error over the pairs (:numref:`triangulation_error`),
   combined with ``dem_mosaic --max``. A useful diagnostic of ray self-consistency.
 * ``--orthoimage`` (with no argument, the per-pair ``L.tif`` is added automatically)
-  also writes ``stereo_out/dem_mosaic-DRG.tif``, the orthoimage, combined with
+  also writes ``stereo_out/run-DRG.tif``, the orthoimage, combined with
   ``dem_mosaic --first`` (the first valid pixel, to avoid smearing seams).
 
 The seed DEM (``--dem``) is the one the images were mapprojected onto. It is passed to
@@ -228,7 +226,7 @@ as well. Here's a recipe which works reasonably well::
       --stereo_options "$stereo_opts"       \
       --pc_filter_options "$pc_filter_opts" \
       --mesh_gen_options "$mesh_gen_opts"   \
-      --out_dir stereo_out
+      --out-prefix stereo_out/run
 
 The overlap list has one image pair per line, with two columns, giving the left and
 right image names as in ``--camera_poses``::
@@ -281,7 +279,7 @@ images using the ``texrecon`` tool (:numref:`texrecon`) as::
 
     texrecon --rig_config rig_out/rig_config.txt \
       --camera_poses rig_out/cameras.txt         \
-      --mesh stereo_out/nav_cam/fused_mesh.ply   \
+      --mesh stereo_out/run-fused_mesh.ply       \
       --rig_sensor nav_cam                       \
       --undistorted_crop_win '1100 700'          \
       --out_dir stereo_out
@@ -329,21 +327,26 @@ Command-line options for multi_stereo
     ``#`` and blank lines are ignored. Required, unless in mode ``dem_mosaic``
     the pairs are determined automatically with ``--conv-angle-prefix`` (see
     below).
---out_dir <string (default: "")>
-    The directory where to write the stereo output, textured mesh or DEM
-    mosaic, and other data.
+--out-prefix <string (default: "")>
+    The output prefix, as for parallel_stereo and stereo_dist. The DEM mosaic,
+    mesh, per-pair stereo data, and other outputs are named starting with this
+    prefix (for example <prefix>-DEM.tif, <prefix>-fused_mesh.ply).
 --stereo_options <string (default: "")>
     Options to pass to ``parallel_stereo``. Use double quotes
     around the full list and simple quotes if needed by an
     individual option, or vice-versa.
 --processes <integer (default: 1)>
-    The width of the parallel job. In ``mesh`` mode, how many pairs run at once.
-    In ``dem_mosaic`` mode, how many per-tile jobs run at once in the pool over all
-    pairs. If ``PBS_NODEFILE`` is set, the pool is spread over those nodes.
+    The width of the parallel job: how many per-tile stereo jobs run at once, pooled
+    over all pairs (both modes). If ``--nodes-list`` or ``PBS_NODEFILE`` is set, the
+    pool is spread over those nodes.
 --threads <integer (default: 0)>
     Threads per ``parallel_stereo`` pair. If positive, each pair is run with
     ``--threads-multiprocess`` and ``--threads-singleprocess`` set to this.
     Default: let ``parallel_stereo`` decide.
+--nodes-list <filename (default: "")>
+    A file with the computing nodes, one per line, over which to spread the pooled
+    stereo jobs, as for ``parallel_stereo`` and ``stereo_dist``. The nodes must share
+    a file system. Default: the value of ``$PBS_NODEFILE``, if set.
 --first_step <string (default: "stereo")>
     Let the first step run by this tool be, for mode ``mesh``: ``stereo``,
     ``pc_filter``, or ``mesh_gen``; for mode ``dem_mosaic``: ``stereo``,

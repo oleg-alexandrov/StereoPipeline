@@ -234,10 +234,10 @@ the pairs directly instead, use ``--overlap-list`` (:numref:`multi_stereo`)::
         "--stereo-algorithm asp_mgm --subpixel-mode 9"  \
       --point2dem-options                               \
         "--tr 0.9 --t_srs EPSG:32617 --errorimage"      \
-      --out_dir stereo
+      --out-prefix stereo/run
 
-This writes ``stereo/dem_mosaic-DEM.tif`` and
-``stereo/dem_mosaic-IntersectionErr.tif``. These follow the ``point2dem`` naming,
+This writes ``stereo/run-DEM.tif`` and
+``stereo/run-IntersectionErr.tif``. These follow the ``point2dem`` naming,
 with ``dem_mosaic`` as the prefix.
 
 The grid is 0.9 m, about four times the 0.23 m ground sample distance, in the same
@@ -259,7 +259,7 @@ To create an orthoimage, mapproject each image onto the mosaic DEM at the 0.23 m
 ground sample distance::
 
     mapproject --tr 0.23           \
-        stereo/dem_mosaic-DEM.tif  \
+        stereo/run-DEM.tif         \
         image.tif                  \
         ba/run-image.tsai          \
         image_map.tif
@@ -318,7 +318,7 @@ fit one water-surface plane over the whole dataset with ``bathy_plane_calc``
 
     bathy_plane_calc                     \
       --mask ortho_water_mask.tif        \
-      --dem stereo/dem_mosaic-DEM.tif    \
+      --dem stereo/run-DEM.tif           \
       --output-plane bathy_plane.txt
 
 Because there is a single mosaicked orthoimage, one global mask and one plane serve
@@ -327,7 +327,7 @@ a single pair in :numref:`bathy_mask_creation`.
 
 Then run the same ``multi_stereo`` command as above, with the water-surface plane,
 the saltwater refraction index, and the global water mask added to
-``--stereo_options`` (:numref:`bathy_intro`), and a new ``--out_dir``. The global
+``--stereo_options`` (:numref:`bathy_intro`), and a new ``--out-prefix``. The global
 ortho mask is passed with ``--ortho-bathy-mask`` (in place of the per-image masks of
 :numref:`bathy_mask_creation`)::
 
@@ -346,10 +346,10 @@ ortho mask is passed with ``--ortho-bathy-mask`` (in place of the per-image mask
       --stereo_options "$stereo_opts"                   \
       --point2dem-options                               \
         "--tr 0.9 --t_srs EPSG:32617 --errorimage"      \
-      --out_dir stereo_bathy
+      --out-prefix stereo_bathy/run
 
 This makes a bathymetry-corrected DEM per pair and mosaics them as before, into
-``stereo_bathy/dem_mosaic-DEM.tif``.
+``stereo_bathy/run-DEM.tif``.
 
 .. figure:: ../images/examples/aerial_bathy_deepen.png
    :name: aerial_bathy_deepen
