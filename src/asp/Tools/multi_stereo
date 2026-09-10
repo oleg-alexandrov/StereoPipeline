@@ -48,6 +48,12 @@ sys.path.insert(0, basepath) # prepend to Python path
 sys.path.insert(0, pythonpath)
 sys.path.insert(0, libexecpath)
 
+# Prepend libexec to PATH so the bare 'parallel' resolves to the real GNU
+# parallel (libexec/parallel), not the bin/parallel wrapper. The wrapper forces
+# ASP's libs onto LD_LIBRARY_PATH, which makes the ssh that GNU parallel spawns
+# load ASP's OpenSSL and fail with a version mismatch. Same fix as parallel_stereo.
+os.environ["PATH"] = libexecpath + os.pathsep + os.environ["PATH"]
+
 import asp_rig_utils
 
 def process_args(args):
@@ -496,7 +502,21 @@ def run_parallel(cmds, num_parallel):
                 '--env', 'ISISROOT', '--env', 'ISISDATA']
     cmd += ['-a', jobs]
     print("Running " + str(len(cmds)) + " job(s), " + str(num_parallel) + " at a time.")
+
+    # GNU parallel (and the ssh it spawns) fails to start with ASP's bundled libs
+    # on LD_LIBRARY_PATH (e.g. OpenSSL version mismatch), so temporarily hide them.
+    # The propagated LD_LIBRARY_PATH is then empty; each remote ASP tool sets its
+    # own via its wrapper. Same bugfix as parallel_stereo (asp_system_utils.py).
+    saved_ld = os.environ.get('LD_LIBRARY_PATH')
+    if saved_ld is not None:
+        os.environ['ASP_LIBRARY_PATH'] = saved_ld
+        os.environ['LD_LIBRARY_PATH'] = ''
+
     ret = subprocess.call(cmd)
+
+    if saved_ld is not None:
+        os.environ['LD_LIBRARY_PATH'] = saved_ld
+
     os.unlink(jobs)
     if ret != 0:
         print("Warning: GNU parallel returned " + str(ret) +
