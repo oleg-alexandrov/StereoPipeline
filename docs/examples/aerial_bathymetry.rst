@@ -64,7 +64,7 @@ build 2026/09/10 (:numref:`release`) or later::
       --intrinsics RCD30_2026_cam_esri.csv \
       --image-list images.txt              \
       --output-dir cameras                 \
-      --t_srs EPSG:32617
+      --t_srs EPSG:6346
 
 Here ``images.txt`` lists the input images (one per line). Each is matched to an
 exterior-orientation record by its file name. The program writes one ``.tsai``
@@ -73,19 +73,29 @@ cameras, in *the same order* as ``images.txt``, to ``cameras/camera_list.txt``. 
 list is passed later to ``bundle_adjust`` (:numref:`bundle_adjust`).
 
 The value of ``--t_srs`` is the projected coordinate system of the positions in
-the exterior-orientation file, given as a PROJ, WKT, or EPSG string (here UTM
-zone 17N on the WGS84 datum). It cannot be inferred from the easting and
-northing alone, so it must be provided. Only the ESRI convention is supported at
-this time.
+the exterior-orientation file, given as a PROJ, WKT, or EPSG string. Here it is
+NAD83(2011), epoch 2010.0, UTM zone 17N (``EPSG:6346``), the datum this survey
+and its reference lidar were delivered in. The datum *cannot be inferred* from the
+easting and northing alone, so it must be provided. Only the ESRI convention is
+supported at this time.
+
+The NAD83(2011) and WGS84 datums differ by about one to two meters in the
+continental United States, mostly horizontally. The two share the same
+ellipsoid to well under a millimeter, and ASP applies no transform between them.
+
+All commands in this document would work equally well with UTM zone 17N on the
+WGS84 datum (``EPSG:32617``). It is suggested to carefully read any vendor
+documentation and evaluate any output products for potential coordinate system
+mix-ups.
 
 For the ESRI convention the omega, phi, and kappa angles are referenced to the
 projected grid, so the grid axes are not aligned with true north away from the
 central meridian. ``cam_gen`` accounts for this grid-to-true-north convergence
 automatically, computing it from the coordinate system at each camera.
 
-Getting this wrong produces a constant rotation of every camera about its
-optical axis, which is easy to miss in a summary statistic but is caught
-immediately by the validation below.
+Getting the angle convention wrong produces a constant rotation of every camera
+about its optical axis, which is easy to miss in a summary statistic but is
+caught immediately by the validation below.
 
 .. _aerial_bathymetry_refdem:
 
@@ -120,7 +130,7 @@ on the ground. Mapproject a frame onto the reference DEM with its created camera
 (:numref:`mapproject`)::
 
     mapproject                             \
-      --t_srs EPSG:32617                   \
+      --t_srs EPSG:6346                    \
       ref_dem.tif                          \
       20251113_155312_032_003.tif          \
       cameras/20251113_155312_032_003.tsai \
@@ -209,7 +219,7 @@ This requires build 2026/09/10 (:numref:`release`) or later.
 Set up the stereo and ``point2dem`` options::
 
     stereoOpts="--stereo-algorithm asp_mgm --subpixel-mode 9"
-    demOpts="--tr 0.9 --t_srs EPSG:32617 --errorimage --orthoimage"
+    demOpts="--tr 0.9 --t_srs EPSG:6346 --errorimage --orthoimage"
 
 Then run stereo and mosaic the results::
 
@@ -238,8 +248,7 @@ The image and camera lists ``ba/run-image_list.txt`` and
 median convergence angle is within ``--conv-angle-range`` is used.
 
 We set the DEM grid to 0.9 m, about four times the 0.23 m ground sample
-distance. The projection is in the UTM zone as the cameras (here
-``EPSG:32617``).
+distance. The projection is the same as the cameras (here ``EPSG:6346``).
 
 If the input images are mapprojected, add the option ``--dem`` that points to
 the DEM for mapprojection (:numref:`multi_stereo_dem_mosaic`).
@@ -338,7 +347,7 @@ ortho mask is passed with ``--ortho-bathy-mask`` (in place of the per-image mask
                 --ortho-bathy-mask ortho_water_mask.tif
                 --bathy-plane bathy_plane.txt
                 --refraction-index 1.34"
-    demOpts="--tr 0.9 --t_srs EPSG:32617
+    demOpts="--tr 0.9 --t_srs EPSG:6346
              --errorimage --orthoimage"
 
     multi_stereo                           \
