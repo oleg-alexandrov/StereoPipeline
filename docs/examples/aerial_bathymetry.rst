@@ -94,8 +94,8 @@ central meridian. ``cam_gen`` accounts for this grid-to-true-north convergence
 automatically, computing it from the coordinate system at each camera.
 
 Getting the angle convention wrong produces a constant rotation of every camera
-about its optical axis, which is easy to miss in a summary statistic but is
-caught immediately by the validation below.
+about its optical axis, which is easy to miss in a summary statistic. A visual
+validation strategy is described in :numref:`aerial_bathymetry_validate`.
 
 .. _aerial_bathymetry_refdem:
 
