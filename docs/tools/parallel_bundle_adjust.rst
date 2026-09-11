@@ -11,7 +11,8 @@ manner as ``parallel_stereo`` (:numref:`parallel_stereo`).
 
 An example is in :numref:`skysat_bundle_adjustment`.
 
-Setting up the nodes list is discussed in :numref:`pbs_slurm`.
+Running on multiple nodes is enabled by the option ``--nodes-list``, as for
+stereo (:numref:`pbs_slurm`).
 
 Processing steps
 ~~~~~~~~~~~~~~~~
@@ -22,13 +23,13 @@ computation, 1: interest point matching, 2: optimization.
 Steps 0 and 1 produce the ``*-stats.tif`` and ``*.match`` files.
 
 Only the first two steps can be done in parallel. In the last step,
-``bundle_adjust`` is invoked as a single process, with the data produced so far. 
+``bundle_adjust`` is invoked as a single process, with the data produced so far.
 
 Use of results
 ~~~~~~~~~~~~~~
 
-The files created by ``parallel_bundle_adjust`` can be used by later 
-invocations of ``bundle_adjust`` or with ``parallel_stereo`` with the 
+The files created by ``parallel_bundle_adjust`` can be used by later
+invocations of ``bundle_adjust`` or with ``parallel_stereo`` with the
 options ``--match-files-prefix`` and ``--clean-match-files-prefix``
 (:numref:`ba_options`).
 
@@ -59,12 +60,12 @@ These options are in addition to the ones for ``bundle_adjust``
 
 -e, --entry-point <integer (default: 0)>
     Bundle adjustment entry point (start at this stage).
-    Options: statistics and interest points per image = 0, 
+    Options: statistics and interest points per image = 0,
     interest point matching = 1, optimization = 2.
 
 --stop-point <integer(default: 3)>
     Bundle adjustment stop point (stop *before* this stage).
-    Options: statistics = 0, matching = 1, optimization = 2, 
+    Options: statistics = 0, matching = 1, optimization = 2,
     all = 3.
 
 --parallel-options <string (default: "--sshdelay 0.2")>

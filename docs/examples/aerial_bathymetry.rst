@@ -154,9 +154,10 @@ meeting under water, even without taking into account refraction, just at a
 shallower point. It also helps that the underlying solver uses a robust
 threshold (:numref:`ba_optim`) that attenuates any outliers.
 
-Command::
+We employ :ref:`parallel_bundle_adjust` to parallelize the finding of interest
+point matches::
 
-    bundle_adjust                            \
+    parallel_bundle_adjust                   \
       --image-list  images.txt               \
       --camera-list cameras/camera_list.txt  \
       --inline-adjustments                   \
@@ -164,10 +165,11 @@ Command::
       --min-triangulation-angle 1e-10        \
       --forced-triangulation-distance 2000   \
       --camera-position-uncertainty 100,100  \
-      --num-iterations 100 --num-passes 2    \
+      --num-iterations 100                   \
+      --num-passes 2                         \
       -o ba/run
 
-Ensure that the image and camera lists are in the same order.
+Ensure that the image and camera lists are in *the same order*.
 
 The option ``--auto-overlap-params`` uses the prior DEM to decide which images
 overlap, rather than trying all pairs (:numref:`ba_options`).
@@ -195,12 +197,12 @@ DEM creation
 
 Unlike with satellite data, a collection of aerial images has many overlapping
 stereo pairs. Bundle adjustment writes a report with the pairwise stereo
-convergence angle for all overlapping image pairs (:numref:`ba_conv_angle`). 
+convergence angle for all overlapping image pairs (:numref:`ba_conv_angle`).
 
 The ``multi_stereo`` program (:numref:`multi_stereo`) automatically runs
 pairwise stereo between the image pairs whose convergence angle is within
 reasonable bounds (here between 15 and 45 degrees, see also
-:numref:`stereo_pairs`). 
+:numref:`stereo_pairs`).
 
 This requires build 2026/09/10 (:numref:`release`) or later.
 
@@ -240,7 +242,7 @@ distance. The projection is in the UTM zone as the cameras (here
 ``EPSG:32617``).
 
 If the input images are mapprojected, add the option ``--dem`` that points to
-the DEM for mapprojection (:numref:`multi_stereo_dem_mosaic`). 
+the DEM for mapprojection (:numref:`multi_stereo_dem_mosaic`).
 
 Set the option ``--nodes-list`` to run on multiple machines
 (:numref:`pbs_slurm`).
@@ -331,12 +333,12 @@ the saltwater refraction index, and the global water mask added to
 ortho mask is passed with ``--ortho-bathy-mask`` (in place of the per-image masks of
 :numref:`bathy_mask_creation`)::
 
-    stereoOpts="--stereo-algorithm asp_mgm 
+    stereoOpts="--stereo-algorithm asp_mgm
                 --subpixel-mode 9
                 --ortho-bathy-mask ortho_water_mask.tif
                 --bathy-plane bathy_plane.txt
                 --refraction-index 1.34"
-    demOpts="--tr 0.9 --t_srs EPSG:32617 
+    demOpts="--tr 0.9 --t_srs EPSG:32617
              --errorimage --orthoimage"
 
     multi_stereo                           \
