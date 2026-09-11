@@ -33,7 +33,7 @@ This program has two modes, set with ``--mode``:
   datum. See an example below.
 
 The image pairs are auto-determined from a convergence angle range
-(``--conv-angle-prefix`` and ``--conv-angle-range``, ``dem_mosaic`` mode), or read
+(``--conv-angle-list`` and ``--conv-angle-range``, ``dem_mosaic`` mode), or read
 from an overlap list (``--overlap-list``). See :numref:`multi_stereo_command_line`.
 
 In both modes the per-tile work of all pairs are put in a single pool, with the
@@ -343,7 +343,7 @@ Command-line options for multi_stereo
     ``--camera-poses``. For mode ``dem_mosaic``: four columns,
     ``left_image right_image left_camera right_camera``. Lines starting with
     ``#`` and blank lines are ignored. Required, unless in mode ``dem_mosaic``
-    the pairs are determined automatically with ``--conv-angle-prefix`` (see
+    the pairs are determined automatically with ``--conv-angle-list`` (see
     below).
 --output-prefix <string (default: "")>
     The output prefix, as for parallel_stereo and stereo_dist. The DEM mosaic,
@@ -416,17 +416,16 @@ Options for mode ``dem_mosaic``:
     taken from the first DEM produced and applied to the rest, so all share one grid.
 --dem-mosaic-options <string (default: "")>
     Extra options for the ``dem_mosaic`` of the per-pair DEMs.
---conv-angle-prefix <string (default: "")>
-    A ``bundle_adjust`` output prefix. The overlap list is built automatically from
-    the convergence angle report ``<prefix>-convergence_angles.txt``
-    (:numref:`ba_conv_angle`): each image pair whose median convergence angle is
-    within ``--conv-angle-range`` is used, with the bundle-adjusted cameras
-    ``<prefix>-<image>.tsai`` or ``.json`` (as written by ``bundle_adjust``).
-    Set this and ``--conv-angle-range`` instead of ``--overlap-list``, not both. See
-    the example in :numref:`aerial_bathymetry`.
+--conv-angle-list <string (default: "")>
+    A ``bundle_adjust`` convergence angle report, named
+    ``<prefix>-convergence_angles.txt`` (:numref:`ba_conv_angle`). The overlap list is
+    built automatically from it: each image pair whose median convergence angle is
+    within ``--conv-angle-range`` is used. The cameras come from ``--image-list`` and
+    ``--camera-list``. Set this and ``--conv-angle-range`` instead of
+    ``--overlap-list``, not both. See the example in :numref:`aerial_bathymetry`.
 --conv-angle-range <min,max>
     Two comma-separated values, no quotes, the minimum and maximum median convergence
-    angle in degrees, for example ``15,45``. Used with ``--conv-angle-prefix`` to
+    angle in degrees, for example ``15,45``. Used with ``--conv-angle-list`` to
     select the stereo pairs.
 
 -h, --help

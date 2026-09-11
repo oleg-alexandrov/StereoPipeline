@@ -11,8 +11,6 @@ The images were created with a Leica RCD30 camera flown over the Gulf coast near
 Sarasota, Florida, at about 2300 m above the water, with a ground sample
 distance of about 0.23 m.
 
-A related example is in :numref:`sfm_uas`.
-
 Vendor metadata
 ~~~~~~~~~~~~~~~
 
@@ -24,7 +22,7 @@ What follows is a simplified example of such a file. The column headers and
 the values in the rows below must be one-to-one, with *tabs as separators*. The
 order can be variable, as the fields are found by name. Some names can have
 spaces, such as ``Image ID``. Other fields (such as standard deviation) are
-ignored. The full vendor delivery, with many more columns, is read as-is.
+ignored.
 
 Example::
 
@@ -72,13 +70,13 @@ Here ``images.txt`` lists the input images (one per line). Each is matched to an
 exterior-orientation record by its file name. The program writes one ``.tsai``
 camera per image into the directory ``cameras``, and saves the list of those
 cameras, in *the same order* as ``images.txt``, to ``cameras/camera_list.txt``. That
-list is passed later to ``bundle_adjust`` (:numref:`bundle_adjust`) and
-``parallel_stereo`` (:numref:`parallel_stereo`).
+list is passed later to ``bundle_adjust`` (:numref:`bundle_adjust`).
 
-The value of ``--t_srs`` is the projected coordinate system of the positions in the
-exterior-orientation file, given as a PROJ, WKT, or EPSG string (here UTM zone 17N
-on the WGS84 datum). It cannot be inferred from the easting and northing alone, so
-it must be provided. Only the ESRI convention is supported at this time.
+The value of ``--t_srs`` is the projected coordinate system of the positions in
+the exterior-orientation file, given as a PROJ, WKT, or EPSG string (here UTM
+zone 17N on the WGS84 datum). It cannot be inferred from the easting and
+northing alone, so it must be provided. Only the ESRI convention is supported at
+this time.
 
 For the ESRI convention the omega, phi, and kappa angles are referenced to the
 projected grid, so the grid axes are not aligned with true north away from the
@@ -217,7 +215,8 @@ Then run stereo and mosaic the results::
       --mode dem_mosaic                    \
       --image-list  ba/run-image_list.txt  \
       --camera-list ba/run-camera_list.txt \
-      --conv-angle-prefix ba/run           \
+      --conv-angle-list                    \
+        ba/run-convergence_angles.txt      \
       --conv-angle-range 15,45             \
       --processes 8                        \
       --threads 4                          \
@@ -344,7 +343,8 @@ ortho mask is passed with ``--ortho-bathy-mask`` (in place of the per-image mask
       --mode dem_mosaic                    \
       --image-list  ba/run-image_list.txt  \
       --camera-list ba/run-camera_list.txt \
-      --conv-angle-prefix ba/run           \
+      --conv-angle-list                    \
+        ba/run-convergence_angles.txt      \
       --conv-angle-range 15,45             \
       --processes 8                        \
       --threads 4                          \
@@ -363,5 +363,4 @@ and other products as before.
    change from the correction, computed as the corrected DEM minus the DEM before
    correction. Blue is where the water bottom moved deeper, the expected
    refraction signature. Land is unchanged (pale). The value is clamped to 1.5 m.
-   The sparse deep-water and bad-stereo areas are noisy and are clamped, not
-   hidden. The correction deepens the shallow water by roughly 1 m here.
+   The correction deepens the shallow water by up to 1 m or so.

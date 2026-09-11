@@ -34,7 +34,7 @@ threads per pair. The modes differ only in how the per-pair clouds are fused:
               data with no datum.
 
 The image pairs come from an overlap list (--overlap-list), or in dem_mosaic mode from
-a convergence angle range (--conv-angle-prefix, --conv-angle-range).
+a convergence angle range (--conv-angle-list, --conv-angle-range).
 """
 
 import argparse, os, re, shutil, subprocess, sys, glob, shlex, tempfile
@@ -188,18 +188,18 @@ def process_args(args):
                         help = "Extra options for the dem_mosaic of the per-pair " + \
                         "DEMs (mode 'dem_mosaic').")
 
-    parser.add_argument("--conv-angle-prefix", dest="conv_angle_prefix", default="",
-                        help = "A bundle_adjust output prefix (mode 'dem_mosaic'). The "  + \
-                        "image pairs are read from the convergence angle report "         + \
-                        "<prefix>-convergence_angles.txt: each pair whose median "        + \
-                        "convergence angle is within --conv-angle-range is used. The "    + \
-                        "cameras come from --image-list and --camera-list. Set this and " + \
-                        "--conv-angle-range instead of --overlap-list, not both.")
+    parser.add_argument("--conv-angle-list", dest="conv_angle_list", default="",
+                        help = "A bundle_adjust convergence angle report, named "         + \
+                        "<prefix>-convergence_angles.txt (mode 'dem_mosaic'). Each pair " + \
+                        "whose median convergence angle is within --conv-angle-range is " + \
+                        "used. The cameras come from --image-list and --camera-list. "    + \
+                        "Set this and --conv-angle-range instead of --overlap-list, not " + \
+                        "both.")
 
     parser.add_argument("--conv-angle-range", dest="conv_angle_range", default="",
                         help = "Two comma-separated values, the min and max median "    + \
                         "convergence angle in degrees, no quotes, for example 15,45 "   + \
-                        "(mode 'dem_mosaic'). Used with --conv-angle-prefix to select " + \
+                        "(mode 'dem_mosaic'). Used with --conv-angle-list to select "   + \
                         "the stereo pairs.")
 
     args = parser.parse_args()
@@ -319,19 +319,19 @@ def sanity_checks(args):
         raise Exception("The output prefix was not specified (--output-prefix).")
 
     # Mode 'mesh' always needs the overlap list. Mode 'dem_mosaic' needs either the
-    # overlap list, or both --conv-angle-prefix and --conv-angle-range (to build the
+    # overlap list, or both --conv-angle-list and --conv-angle-range (to build the
     # overlap list from a bundle_adjust convergence angle report), but not both.
-    have_conv = (args.conv_angle_prefix != "" or args.conv_angle_range != "")
+    have_conv = (args.conv_angle_list != "" or args.conv_angle_range != "")
     if args.mode == "dem_mosaic" and have_conv:
-        if args.conv_angle_prefix == "" or args.conv_angle_range == "":
-            raise Exception("Both --conv-angle-prefix and --conv-angle-range must be "
+        if args.conv_angle_list == "" or args.conv_angle_range == "":
+            raise Exception("Both --conv-angle-list and --conv-angle-range must be "
                             "set, or neither.")
         if args.overlap_list != "":
-            raise Exception("Set either --overlap-list, or --conv-angle-prefix and "
+            raise Exception("Set either --overlap-list, or --conv-angle-list and "
                             "--conv-angle-range, not both.")
     elif args.overlap_list == "":
         raise Exception("The overlap list was not specified (--overlap-list). In mode "
-                        "'dem_mosaic', --conv-angle-prefix and --conv-angle-range may "
+                        "'dem_mosaic', --conv-angle-list and --conv-angle-range may "
                         "be used instead.")
 
     if args.mode == "dem_mosaic" and (args.image_list == "" or args.camera_list == ""):
@@ -803,7 +803,7 @@ def dem_stage_fuse(args, pairs, tool_base_dir):
 
 def conv_angle_pairs(args):
     """Image-name pairs whose median convergence angle is within --conv-angle-range,
-    from the bundle_adjust report <prefix>-convergence_angles.txt. Cameras are
+    from the bundle_adjust report given by --conv-angle-list. Cameras are
     resolved separately, from --image-list and --camera-list."""
     vals = args.conv_angle_range.split(',')
     if len(vals) != 2:
@@ -814,7 +814,7 @@ def conv_angle_pairs(args):
     if lo >= hi:
         raise Exception("--conv-angle-range needs min < max, for example 15,45.")
 
-    report = args.conv_angle_prefix + "-convergence_angles.txt"
+    report = args.conv_angle_list
     if not os.path.exists(report):
         raise Exception("Cannot find the convergence angle report: " + report +
                         ". It is written by bundle_adjust.")
