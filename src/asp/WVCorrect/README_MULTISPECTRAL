@@ -188,3 +188,100 @@ precision. (Specify the correct band in the second call.)
 
 
 
+
+# WorldView-3 green corrections (2026 refinements)
+
+The WorldView-3 green-band (band 3) tables shipped with ASP
+(WV03_BAND3_CCD_CORR.tif) were produced with the same core idea as above
+(green-to-PAN per-column disparity, averaged over several acquisitions of the
+same TDI and scan direction, detrended, and packed into a TIF), with a few
+refinements that made the result cleaner and better validated. This section
+documents the recipe with a step-by-step example for one cell: TDI 14, forward.
+
+Refinements over the older recipe:
+
+  * PAN framing. The 4x-downsampled PAN is padded so
+    the green-to-PAN disparity is centered near zero, and correlation uses a
+    tight centered search (e.g. --corr-search -5 -5 5 5). This avoids carrying a
+    ~13-pixel boresight offset through the correlation and removes the risk of a
+    wrong correlation peak at the image edges.
+
+  * Detrend. A moving-average high-pass (window ~1.8x the CCD sub-array width)
+    removes the broad parallax / terrain trend while keeping the per-column CCD
+    steps, centered on zero. This is the script wv3_green_combine.py. The
+    off-border garbage columns at each end are clamped flat; if they are left in,
+    wv_correct shifts the first/last image columns by ~0.2-0.3 pixels, so always
+    confirm the shipped table's edges are near 0.
+
+  * Outlier scan. wv3_green_combine.py prints each acquisition's interior std;
+    scan it and drop any scene whose correlation failed (a single bad scene can
+    inflate the mean several-fold).
+
+  * Stronger validation. In addition to the 1D re-correlation check, the
+    correction is validated on real stereo DEMs: a green stereo pair is
+    bundle-adjusted, mapprojected, and stereo'd before and after correction, and
+    point2dem --errorimage gives the DEM and triangulation error. The CCD shows
+    as vertical stripes in before-minus-after; it is cleanest over high-texture
+    desert (Uluru), pair-dependent for weaker cells, and unusable over water.
+
+Step by step, for TDI 14, forward. Assume the PAN and 8-band MS images and
+cameras for each acquisition are p.tif/p.xml and m.tif/m.xml.
+
+  1. Measure, per acquisition. Produce the per-column green-to-PAN disparity
+     avg-dx.txt / avg-dy.txt. Either use ms_ccd_solve.sh as in the WV2 recipe
+     above, or, for the centered-search variant: CCD-correct the PAN
+     (wv_correct), extract green (band 3), 4x-average-downsample the PAN, and pad
+     the PAN so the green-to-PAN disparity centers near 0, then correlate green
+     (left) to PAN (right) with a tight search and average
+     each column (parallel_stereo --stop-point 4 then disp_avg). Do this for
+     ~10-15 acquisitions of TDI 14, forward, each in its own directory run1,
+     run2, ...
+
+  2. Combine + detrend:
+
+       python wv3_green_combine.py cell14fwd_corr \
+         run*/avg-dx.txt --win 1600
+
+     This prints each scene's interior std (drop outliers and re-run), then
+     writes cell14fwd_corr-dx.txt and cell14fwd_corr-dy.txt. Confirm the printed
+     edge values are near 0.
+
+  3. Verify (1D). Re-correlate the corrected green to the PAN (ms_ccd_verify.sh,
+     or repeat step 1 on the corrected green): the per-column fence must drop to
+     the noise floor.
+
+  4. Verify (2D), recommended. Bundle-adjust a green stereo pair (-t dg),
+     mapproject both views onto a reference DEM with the adjusted cameras, run
+     parallel_stereo and point2dem --errorimage, before and after applying the
+     correction. Inspect the hillshaded DEM and colorized triangulation error;
+     the before-minus-after difference should show the removed vertical CCD
+     stripes.
+
+  5. Pack into the shipped TIF (append a row per cell):
+
+       python form_corrections_image.py \
+         cell14fwd_corr-dx.txt cell14fwd_corr-dy.txt \
+         --output-image WV03_BAND3_CCD_CORR.tif
+
+  6. Add a lookup row to ms_correction_lookup.txt, e.g.
+
+       WV03   3   14  forward  WV03_BAND3_CCD_CORR.tif   0
+
+     (SATID BAND TDI SCANDIR CORRECTION_IMAGE ROW; ROW is the row of this cell in
+     the TIF.) If a new TIF file was added, also add an install(FILES ...) line
+     for it in the top-level CMakeLists.txt. Touch CMakeLists.txt, then re-run
+     cmake, make, and make install so the data files are re-installed.
+
+  7. Test. Confirm the built-in table matches the explicit files:
+
+       wv_correct --dx cell14fwd_corr-dx.txt --dy cell14fwd_corr-dy.txt \
+         --print-per-column-corrections m_b3.tif m.xml out1.tif
+       wv_correct --band 3 --print-per-column-corrections m_b3.tif m.xml out2.tif
+
+     The printed corrections must match up to float precision. The tiny
+     regression test ss_wv_correct_wv03_green exercises this built-in-table path.
+
+These scripts (wv3_green_combine.py and the older ones here) live in the ASP
+source tree only; they are development tools and are not installed. Only the
+correction TIF images and ms_correction_lookup.txt are shipped, to
+share/wv_correct.

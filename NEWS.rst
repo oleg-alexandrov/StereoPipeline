@@ -12,6 +12,9 @@ New features:
   * Added an example for the Clementine NIR camera (:numref:`clementine`).
   * Added ``glint_correct``, to remove sun glint from a visible band for
     shallow-water bathymetry (:numref:`glint_correct`).
+  * ``wv_correct``: added built-in CCD artifact corrections for the WorldView-3
+    green multispectral band (band 3), for a few TDI levels and scan
+    directions (:numref:`wv_correct`).
   * Added the AKAZE, BRISK, and KAZE interest point detection methods to
     ``parallel_stereo``, ``bundle_adjust``, etc. (:numref:`stereodefault`).
   * ``dg_mosaic``: support the newer namespaced Maxar/Vantor ISD metadata XML

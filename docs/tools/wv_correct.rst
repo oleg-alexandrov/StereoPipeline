@@ -28,10 +28,13 @@ for the forward and reverse scan directions. For WV03 PAN images, CCD
 artifacts are less noticeable than for WV01 and WV02, and they are not
 corrected at this time.
 
-For multispectral images, only a few select TDI are supported for band
-3 of WV02 data. If a certain combination of spacecraft/TDI is not
-supported, the tool will print a warning and will write on output the
-uncorrected input image.
+For multispectral images, corrections are provided for band 3 (green) of
+both WorldView-2 and WorldView-3 data, for a set of TDI levels and scan
+directions (the supported combinations are listed in the correction lookup
+table shipped with ASP, in ``share/wv_correct/ms_correction_lookup.txt``). If
+a certain combination of spacecraft / TDI / scan direction is not supported,
+the tool will print a warning and will write on output the uncorrected input
+image.
 
 The ASP source code repository has additional documentation and tools for how to
 tabulate the corrections for the cases not yet covered by this tool.

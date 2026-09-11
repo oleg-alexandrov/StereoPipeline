@@ -20,3 +20,7 @@
   WV02   3   14  forward  WV02_BAND3_CCD_CORR.tif    4  
   WV02   3   18  forward  WV02_BAND3_CCD_CORR.tif    5  
   WV02   3   24  forward  WV02_BAND3_CCD_CORR.tif    6  
+  WV03   3   14  forward  WV03_BAND3_CCD_CORR.tif    0
+  WV03   3   14  reverse  WV03_BAND3_CCD_CORR.tif    1
+  WV03   3   21  reverse  WV03_BAND3_CCD_CORR.tif    2
+  WV03   3   24  forward  WV03_BAND3_CCD_CORR.tif    3
